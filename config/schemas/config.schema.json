@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "HailoYOLO11Config",
+  "description": "Validation schema for hailo-yolo11-compiler configuration",
+  "type": "object",
+  "required": ["project", "model", "dataset", "training", "export", "hailo", "quantization", "validation", "artifacts"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["name", "seed"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "seed": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "model": {
+      "type": "object",
+      "required": ["source", "variant", "task"],
+      "properties": {
+        "source": { "type": "string", "minLength": 1 },
+        "variant": { "type": "string", "enum": ["n", "s", "m", "l", "x", "custom"] },
+        "task": { "type": "string", "enum": ["detect"] }
+      },
+      "additionalProperties": false
+    },
+    "dataset": {
+      "type": "object",
+      "required": ["yaml", "calibration"],
+      "properties": {
+        "yaml": { "type": "string", "minLength": 1 },
+        "calibration": {
+          "type": "object",
+          "required": ["source", "count", "seed"],
+          "properties": {
+            "source": { "type": "string", "enum": ["train", "custom"] },
+            "count": { "type": "integer", "minimum": 1, "maximum": 50000 },
+            "seed": { "type": "integer", "minimum": 0 },
+            "custom_dir": { "type": ["string", "null"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "training": {
+      "type": "object",
+      "required": ["epochs", "imgsz", "batch", "device", "optimizer", "patience", "deterministic"],
+      "properties": {
+        "epochs": { "type": "integer", "minimum": 1 },
+        "imgsz": { "type": "integer", "minimum": 32, "multipleOf": 32 },
+        "batch": { "type": "integer", "minimum": 1 },
+        "device": { "type": "string" },
+        "optimizer": { "type": "string" },
+        "lr0": { "type": ["number", "null"], "minimum": 0 },
+        "lrf": { "type": ["number", "null"], "minimum": 0 },
+        "patience": { "type": "integer", "minimum": 1 },
+        "deterministic": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "export": {
+      "type": "object",
+      "required": ["imgsz", "batch", "dynamic", "precision", "simplify", "nms"],
+      "properties": {
+        "imgsz": { "type": "integer", "minimum": 32, "multipleOf": 32 },
+        "batch": { "type": "integer", "const": 1 },
+        "dynamic": { "type": "boolean", "const": false },
+        "precision": { "type": "string", "enum": ["fp32", "fp16"] },
+        "simplify": { "type": "boolean" },
+        "opset": { "type": ["integer", "null"], "minimum": 11, "maximum": 21 },
+        "nms": { "type": "string", "enum": ["auto", "hailo_runtime", "embedded"] }
+      },
+      "additionalProperties": false
+    },
+    "hailo": {
+      "type": "object",
+      "required": ["target", "sdk_mode", "require_hardware"],
+      "properties": {
+        "target": { "type": "string", "const": "hailo8l" },
+        "sdk_mode": { "type": "string", "enum": ["auto", "sdk", "cli"] },
+        "require_hardware": { "type": "boolean" },
+        "har_path": { "type": ["string", "null"] },
+        "hef_path": { "type": ["string", "null"] },
+        "compiler_optimization_level": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "calib_batch_size": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "quantization": {
+      "type": "object",
+      "required": ["mode", "optimisation"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["int8_ptq"] },
+        "optimisation": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "validation": {
+      "type": "object",
+      "required": ["enabled", "accuracy", "performance"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "accuracy": {
+          "type": "object",
+          "required": ["map50_max_drop", "map5095_max_drop"],
+          "properties": {
+            "map50_max_drop": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+            "map5095_max_drop": { "type": "number", "minimum": 0.0, "maximum": 1.0 }
+          },
+          "additionalProperties": false
+        },
+        "performance": {
+          "type": "object",
+          "required": ["warmup_iterations", "measurement_iterations"],
+          "properties": {
+            "warmup_iterations": { "type": "integer", "minimum": 0 },
+            "measurement_iterations": { "type": "integer", "minimum": 1 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifacts": {
+      "type": "object",
+      "required": ["root"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

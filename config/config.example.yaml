@@ -1,0 +1,66 @@
+# ==============================================================================
+# hailo-yolo11-compiler Example Configuration File
+# Complete documented reference for all configuration options
+# ==============================================================================
+
+project:
+  name: "yolo11-hailo"
+  seed: 42                # Global deterministic random seed
+
+model:
+  source: "yolo11n.pt"    # Base checkpoint: "yolo11n.pt", "yolo11s.pt", or custom weights path
+  variant: "n"            # Variant: "n", "s", "m", "l", "x", or "custom"
+  task: "detect"          # Model task: "detect" (segmentation/classification can be extended)
+
+dataset:
+  yaml: "data/dataset.yaml" # Path to YOLO format dataset YAML
+  calibration:
+    source: "train"       # "train" (sample from training images) or "custom" (from custom_dir)
+    count: 200            # Sample count for INT8 PTQ calibration (100 - 200 recommended)
+    seed: 42              # Calibration selection seed
+    custom_dir: null      # Path to image folder if source is "custom"
+
+training:
+  epochs: 100             # Total training epochs
+  imgsz: 640              # Image resolution (square, e.g. 640)
+  batch: 16               # Training mini-batch size
+  device: "auto"          # Compute device: "auto", "cpu", "0", "0,1"
+  optimizer: "auto"       # Optimizer: "auto", "SGD", "Adam", "AdamW"
+  lr0: null               # Initial learning rate (null uses Ultralytics defaults)
+  lrf: null               # Final learning rate fraction (null uses defaults)
+  patience: 50            # Epochs to wait for early stopping
+  deterministic: true     # Enforce deterministic PyTorch training operations
+
+export:
+  imgsz: 640              # Canonical export spatial dimension (640x640)
+  batch: 1                # Static batch dimension (must be 1 for Hailo-8L)
+  dynamic: false          # Dynamic dimensions must be disabled for Hailo compilation
+  precision: "fp32"       # Canonical representation: fp32
+  simplify: true          # Apply onnx-simplifier
+  opset: null             # Target ONNX opset (recommended: 17; null auto-selects)
+  nms: "auto"             # "auto" (preserves raw head for Hailo), "embedded", or "hailo_runtime"
+
+hailo:
+  target: "hailo8l"       # Target accelerator architecture (Hailo-8L AI HAT+ on Raspberry Pi 5)
+  sdk_mode: "auto"        # "auto" (detects python API or CLI), "sdk", or "cli"
+  require_hardware: false # Set true to fail if physical Hailo-8L accelerator is absent
+  har_path: null          # Optional path to existing HAR to bypass parsing phase
+  hef_path: null          # Optional path to existing HEF to bypass compilation phase
+  compiler_optimization_level: 0 # Hailo compiler optimization level
+  calib_batch_size: 1     # Calibration batch size
+
+quantization:
+  mode: "int8_ptq"        # INT8 Post-Training Quantization
+  optimisation: true      # Run Hailo model optimization pass
+
+validation:
+  enabled: true           # Enable quantitative accuracy and performance validation
+  accuracy:
+    map50_max_drop: 0.02    # Maximum allowed degradation in mAP50 (e.g. 0.02 = 2%)
+    map5095_max_drop: 0.02  # Maximum allowed degradation in mAP50-95
+  performance:
+    warmup_iterations: 20   # Warmup inferences before measuring latency
+    measurement_iterations: 100 # Timed evaluation iterations
+
+artifacts:
+  root: "./artifacts"     # Destination root directory for all pipeline outputs

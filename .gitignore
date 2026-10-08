@@ -218,3 +218,31 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# hailo-yolo11-compiler additions
+artifacts/runs/*
+artifacts/pytorch/*
+artifacts/onnx/*
+artifacts/hailo/*
+artifacts/calibration/*
+!artifacts/**/.gitkeep
+*.pt
+*.onnx
+*.har
+*.hef
+data/
+.venv/
+.env
+
+# Agent, assistant configurations, and prompt specifications
+.agents/
+.gemini/
+.claude/
+.cursor/
+.windsurf/
+*.prompt
+*.prompt.md
+*.agent.md
+hailo-yolo11-compiler.md
+edge-vision-monitor.md
+

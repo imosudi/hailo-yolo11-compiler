@@ -1,0 +1,65 @@
+# ==============================================================================
+# hailo-yolo11-compiler Master Configuration
+# ==============================================================================
+
+project:
+  name: "yolo11-hailo"
+  seed: 42
+
+model:
+  source: "yolo11n.pt"
+  variant: "n"          # Supported: n, s, m, l, x, or custom
+  task: "detect"        # Target task: detect
+
+dataset:
+  yaml: "data/dataset.yaml"
+  calibration:
+    source: "train"     # "train" or "custom"
+    count: 200          # Recommended: 100-200
+    seed: 42
+    custom_dir: null
+
+training:
+  epochs: 100
+  imgsz: 640
+  batch: 16
+  device: "auto"        # "auto", "cpu", "0", "0,1"
+  optimizer: "auto"     # "auto", "SGD", "Adam", "AdamW"
+  lr0: null             # Initial learning rate (null = default)
+  lrf: null             # Final learning rate factor (null = default)
+  patience: 50          # Early stopping patience
+  deterministic: true
+
+export:
+  imgsz: 640
+  batch: 1
+  dynamic: false        # Must be false for canonical Hailo export
+  precision: "fp32"     # Canonical representation: fp32
+  simplify: true
+  opset: null           # null = default recommended opset (17)
+  nms: "auto"           # "auto", "hailo_runtime", or "embedded"
+
+hailo:
+  target: "hailo8l"     # Canonical accelerator: hailo8l (Raspberry Pi 5 AI HAT+)
+  sdk_mode: "auto"      # "auto", "sdk", "cli"
+  require_hardware: false # Fail if physical Hailo-8L accelerator missing
+  har_path: null        # Path to existing HAR if resuming compile phase
+  hef_path: null        # Path to existing HEF if running runtime validation
+  compiler_optimization_level: 0
+  calib_batch_size: 1
+
+quantization:
+  mode: "int8_ptq"      # Standard Hailo post-training quantisation
+  optimisation: true
+
+validation:
+  enabled: true
+  accuracy:
+    map50_max_drop: 0.02    # Maximum allowed mAP50 drop (2%)
+    map5095_max_drop: 0.02  # Maximum allowed mAP50-95 drop (2%)
+  performance:
+    warmup_iterations: 20
+    measurement_iterations: 100
+
+artifacts:
+  root: "./artifacts"
