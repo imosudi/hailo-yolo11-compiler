@@ -572,14 +572,23 @@ pytest -v --cov=yolo_hailo_mlops tests/
 
 ## 19. Documentation Directory
 
-Detailed architectural and procedural references are maintained in the [`docs/`](docs/) directory:
+Comprehensive user manuals and architectural specifications are maintained in the [`docs/`](docs/) directory:
 
+### User Manuals & Operational Runbooks
+- [Documentation Hub & Sitemap](docs/README.md)
+- [Complete User Guide & CLI Reference](docs/user_guide.md)
+- [Dataset Preparation, Formatting & Validation Manual](docs/dataset_guide.md)
+- [Configuration System & Parameter Reference Manual](docs/configuration_guide.md)
+- [Raspberry Pi 5 & Hailo-8L Deployment Guide](docs/hardware_setup_guide.md)
+- [Accuracy Gates & Performance Benchmarking Manual](docs/benchmarking_and_evaluation.md)
+
+### Architectural & Engineering Specifications
 - [Architecture Specification](docs/architecture.md)
-- [Pipeline Execution Guide](docs/pipeline.md)
-- [Hailo-8L Compilation & Hardware Setup](docs/hailo.md)
-- [Calibration & Quantisation Contract](docs/calibration.md)
-- [Reproducibility & Manifest Provenance](docs/reproducibility.md)
-- [Troubleshooting & Error Codes Reference](docs/troubleshooting.md)
+- [Pipeline Execution Lifecycle & Data Flow](docs/pipeline.md)
+- [Hailo-8L Compilation & Hardware Deployment](docs/hailo.md)
+- [Calibration & INT8 PTQ Contract](docs/calibration.md)
+- [Experiment Reproducibility & Result Integrity](docs/reproducibility.md)
+- [Troubleshooting & Error Codes Reference Manual](docs/troubleshooting.md)
 - [Security Policy & Threat Model](SECURITY.md)
 
 ---

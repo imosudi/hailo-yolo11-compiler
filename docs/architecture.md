@@ -106,3 +106,17 @@ src/yolo_hailo_mlops/
 ├── performance/       # Latency percentiles, throughput, and system resource telemetry
 └── utils/             # Atomic file writes, subprocess safety, and hashing
 ```
+
+## 5. User Guides & Operational Manuals
+
+For practical operational workflows, refer to the dedicated user documentation:
+- [Complete User Guide & CLI Reference](user_guide.md)
+- [Dataset Preparation, Formatting & Validation Manual](dataset_guide.md)
+- [Configuration System & Parameter Reference Manual](configuration_guide.md)
+- [Raspberry Pi 5 & Hailo-8L Deployment Guide](hardware_setup_guide.md)
+- [Accuracy Gates & Performance Benchmarking Manual](benchmarking_and_evaluation.md)
+- [Pipeline Execution Lifecycle](pipeline.md)
+- [Hailo-8L Compilation & Hardware Deployment](hailo.md)
+- [Calibration & Quantisation Contract](calibration.md)
+- [Experiment Reproducibility & Result Integrity](reproducibility.md)
+- [Troubleshooting & Error Codes Reference](troubleshooting.md)
