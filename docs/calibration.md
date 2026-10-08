@@ -1,8 +1,8 @@
-# Calibration & INT8 Post-Training Quantization
+# Calibration & INT8 Post-Training Quantisation
 
 ## Objective
 
-Post-Training Quantization (PTQ) maps continuous 32-bit floating-point weights and activation tensors into discrete 8-bit integer values (`INT8`). To compute the optimal dynamic ranges (scale factors and zero-points) for each layer without full model retraining, Hailo DFC requires a representative calibration dataset.
+Post-Training Quantisation (PTQ) maps continuous 32-bit floating-point weights and activation tensors into discrete 8-bit integer values (`INT8`). To compute the optimal dynamic ranges (scale factors and zero-points) for each layer without full model retraining, Hailo DFC requires a representative calibration dataset.
 
 ## Calibration Contract
 
@@ -10,7 +10,7 @@ To prevent numerical accuracy degradation between training, ONNX export, and har
 
 | Parameter | Value | Details |
 | :--- | :--- | :--- |
-| **Color Space** | `RGB` | 3 channels (converted from BGR or Grayscale) |
+| **Colour Space** | `RGB` | 3 channels (converted from BGR or Grayscale) |
 | **Dimensions** | `640 × 640` | Square spatial resolution matching YOLO11 input |
 | **Aspect Ratio Policy** | `Letterbox` | Maintained using uniform scaling and padding (value 114) |
 | **Sample Count** | `200` | Recommended range: 100 – 200 samples |
@@ -39,7 +39,7 @@ dataset:
 2. **Dedicated Directory (`source: custom`)**:
    - Gathers images from an isolated operational domain folder specified by `custom_dir`.
 
-## Output Artifacts
+## Output Artefacts
 
 Calibration produces an isolated package in `artifacts/runs/<run_id>/calibration/`:
 

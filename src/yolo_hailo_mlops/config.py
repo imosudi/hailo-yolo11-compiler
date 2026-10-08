@@ -238,11 +238,11 @@ def load_config(
     train_d = raw.get("training", {})
     exp_d = raw.get("export", {})
     hailo_d = raw.get("hailo", {})
-    quant_d = raw.get("quantization", {})
+    quant_d = raw.get("quantization") or raw.get("quantisation") or {}
     val_d = raw.get("validation", {})
     acc_d = val_d.get("accuracy", {})
     perf_d = val_d.get("performance", {})
-    art_d = raw.get("artifacts", {})
+    art_d = raw.get("artifacts") or raw.get("artefacts") or {}
 
     # 3. Apply Environment Variable overrides
     def get_env_val(key: str, default: Any, caster: type = str) -> Any:

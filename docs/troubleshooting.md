@@ -2,7 +2,7 @@
 
 ## Diagnostic Taxonomy
 
-The pipeline categorizes all failures into structured error codes. When an error occurs, the CLI prints a standardized diagnostic block containing the error code, phase, cause, affected artifact, and remediation action.
+The pipeline categorises all failures into structured error codes. When an error occurs, the CLI prints a standardised diagnostic block containing the error code, phase, cause, affected artefact, and remediation action.
 
 ---
 
@@ -46,7 +46,7 @@ The pipeline categorizes all failures into structured error codes. When an error
 | :--- | :--- | :--- | :--- |
 | `E-HAILO-ENV-001` | `hailo_environment` | Hailo DFC or HailoRT not installed | Install Hailo DFC v3.28+ on compilation host or use container. |
 | `E-HAILO-PARSE-004` | `hailo_parse` | Hailo ONNX parser failure | Inspect unsupported ONNX operators; ensure NMS is not embedded in the ONNX graph. |
-| `E-HAILO-OPT-005` | `hailo_optimisation` | Quantization failed | Check calibration set preprocessing; ensure `calib_data.npy` matches model input dimensions. |
+| `E-HAILO-OPT-005` | `hailo_optimisation` | Quantisation failed | Check calibration set preprocessing; ensure `calib_data.npy` matches model input dimensions. |
 | `E-HAILO-COMP-005` | `hailo_compile` | Compilation / layer routing failed | Verify model capacity fits Hailo-8L resource limits; reduce model variant to `n` or `s`. |
 | `E-HAILO-RT-002` | `hailo_runtime` | Physical Hailo accelerator missing | Verify Raspberry Pi 5 PCIe HAT+ ribbon cable connection; check `dmesg \| grep hailo`. |
 
