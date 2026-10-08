@@ -46,8 +46,8 @@ The pipeline strictly enforces three distinct execution tiers to preserve resear
 │       (Linux x86_64 host with Hailo Dataflow Compiler)        │
 │                                                               │
 │  - ONNX → Hailo Archive (HAR) Translation                     │
-│  - Model Script (.alls) Normalization Configuration           │
-│  - INT8 Post-Training Quantization (PTQ)                      │
+│  - Model Script (.alls) Normalisation Configuration           │
+│  - INT8 Post-Training Quantisation (PTQ)                      │
 │  - Hailo-8L Compilation & Scheduling                          │
 │  - HEF Binary Validation                                      │
 └──────────────────────────────┬────────────────────────────────┘
@@ -71,9 +71,9 @@ The orchestration core implements an explicit, deterministic state machine (`yol
 
 - **PENDING**: Phase is registered but has not yet started.
 - **RUNNING**: Phase is currently executing.
-- **SUCCESS**: Phase concluded successfully; produced artifacts are cryptographically hashed.
+- **SUCCESS**: Phase concluded successfully; produced artefacts are cryptographically hashed.
 - **FAILED**: Phase failed; diagnostic error codes, cause, and remediation are captured.
-- **SKIPPED**: Phase bypassed via configuration or CLI flags (e.g., using existing valid artifacts).
+- **SKIPPED**: Phase bypassed via configuration or CLI flags (e.g., using existing valid artefacts).
 - **NOT_EXECUTED**: Phase could not execute due to missing hardware or compiler environment boundaries.
 - **CANCELLED**: Gracefully interrupted by `SIGINT` or `SIGTERM`.
 
@@ -93,7 +93,7 @@ src/yolo_hailo_mlops/
 ├── logging.py         # Structured Console, Plaintext, and JSONL logging
 ├── exceptions.py      # Domain exception taxonomy with remediation guides
 ├── state.py           # Pipeline state machine and execution boundaries
-├── manifest.py        # Experiment manifest serialization
+├── manifest.py        # Experiment manifest serialisation
 ├── provenance.py      # Host platform and telemetry provenance
 ├── checksums.py       # SHA-256 recording and tamper detection
 │
@@ -101,7 +101,7 @@ src/yolo_hailo_mlops/
 ├── training/          # Ultralytics PyTorch training and checkpoint inspection
 ├── export/            # Static FP32 ONNX export and graph validation
 ├── calibration/       # Letterbox preprocessing and deterministic calibration packages
-├── hailo/             # Hailo DFC parser, optimizer, compiler, and HailoRT runtime
+├── hailo/             # Hailo DFC parser, optimiser, compiler, and HailoRT runtime
 ├── evaluation/        # Quantitative evaluation, metrics, and accuracy degradation gates
 ├── performance/       # Latency percentiles, throughput, and system resource telemetry
 └── utils/             # Atomic file writes, subprocess safety, and hashing

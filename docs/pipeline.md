@@ -34,7 +34,7 @@ python train_and_compile.py export
 - Executes numerical validation against the PyTorch baseline.
 
 ### 4. Calibration Dataset Generation (`calibrate`)
-Extracts a deterministic calibration dataset for Hailo INT8 Post-Training Quantization (PTQ).
+Extracts a deterministic calibration dataset for Hailo INT8 Post-Training Quantisation (PTQ).
 
 ```bash
 python train_and_compile.py calibrate --seed 42
@@ -50,9 +50,9 @@ Executes the Hailo compilation chain on hosts with Hailo Dataflow Compiler (DFC)
 python train_and_compile.py compile
 ```
 - Translates ONNX to Hailo Archive (HAR) via `hailo_sdk_client.ClientRunner` or `hailo parser onnx`.
-- Generates `yolo11.alls` specifying RGB normalization: `[0.0, 0.0, 0.0]` to `[255.0, 255.0, 255.0]`.
+- Generates `yolo11.alls` specifying RGB normalisation: `[0.0, 0.0, 0.0]` to `[255.0, 255.0, 255.0]`.
 - Runs INT8 PTQ using `calib_data.npy`.
-- Compiles optimized HAR to Hailo Executable Format (`model.hef`) targeting `hailo8l`.
+- Compiles optimised HAR to Hailo Executable Format (`model.hef`) targeting `hailo8l`.
 
 ### 6. Validation & Benchmarks (`validate`)
 Evaluates accuracy metrics, accuracy degradation gates, and runs latency benchmarks.

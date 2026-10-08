@@ -2,9 +2,9 @@
 
 ## Principles of Result Integrity
 
-`hailo-yolo11-compiler` treats ML compiler operations and hardware benchmarking with research-grade rigor:
+`hailo-yolo11-compiler` treats ML compiler operations and hardware benchmarking with research-grade rigour:
 
-1. **Defensible Chain of Provenance**: Every artifact records its source files, generating phase, runtime duration, git commit, and SHA-256 cryptographic hash.
+1. **Defensible Chain of Provenance**: Every artefact records its source files, generating phase, runtime duration, git commit, and SHA-256 cryptographic hash.
 2. **No Hidden Fallbacks**: The pipeline will never silently emulate missing Hailo hardware on CPU or GPU. Missing physical devices are explicitly marked `NOT_EXECUTED`.
 3. **No Fabricated Telemetry**: Hardware metrics that cannot be directly measured are classified as `UNAVAILABLE` with an explicit reason string.
 
@@ -60,9 +60,9 @@ At the conclusion of each pipeline run, an immutable JSON ledger is generated:
 }
 ```
 
-## Atomic Artifact Storage
+## Atomic Artefact Storage
 
 To prevent partially written, corrupted files resulting from process interruptions or out-of-disk conditions:
-- All artifacts are written to temporary files on the same filesystem (`.tmp_<name>_`).
-- Synchronized to persistent media via `os.fsync()`.
+- All artefacts are written to temporary files on the same filesystem (`.tmp_<name>_`).
+- Synchronised to persistent media via `os.fsync()`.
 - Atomically renamed to their final path via `Path.replace()`.

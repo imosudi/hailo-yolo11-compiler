@@ -22,11 +22,11 @@ Hailo Parser (ONNX → HAR)
 model.har (Floating point Hailo representation)
        │
        ▼
-Hailo Optimizer (INT8 Post-Training Quantization)
+Hailo Optimiser (INT8 Post-Training Quantisation)
   └── Consumes: calib_data.npy (200 RGB letterboxed samples)
        │
        ▼
-model_quantized.har (Quantized INT8 representation)
+model_quantized.har (Quantised INT8 representation)
        │
        ▼
 Hailo Compiler (Resource allocation & layer routing)
@@ -38,7 +38,7 @@ model.hef (Hailo Executable Format)
 
 ## Model Script (`.alls`) Configuration
 
-YOLO11 models trained with Ultralytics expect normalized inputs in `[0.0, 1.0]`. When using raw `uint8` image inputs on edge devices, Hailo hardware can perform input normalization with zero latency:
+YOLO11 models trained with Ultralytics expect normalised inputs in `[0.0, 1.0]`. When using raw `uint8` image inputs on edge devices, Hailo hardware can perform input normalisation with zero latency:
 
 ```text
 normalization1 = normalization([0.0, 0.0, 0.0], [255.0, 255.0, 255.0])
@@ -49,7 +49,7 @@ performance_param(compiler_optimization_level=0)
 
 For Hailo-8L deployments, raw bounding box and classification heads are preferred over embedding standard PyTorch non-max suppression ops in the ONNX graph:
 - Hailo DFC parses the convolution layers and prediction heads cleanly.
-- Post-processing is delegated to the HailoRT host runtime or Hailo NMS layer, avoiding unoptimized ONNX control flow ops.
+- Post-processing is delegated to the HailoRT host runtime or Hailo NMS layer, avoiding unoptimised ONNX control flow ops.
 
 ## Raspberry Pi 5 Physical Runtime Setup
 
