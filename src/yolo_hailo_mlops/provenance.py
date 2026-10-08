@@ -11,7 +11,10 @@ import sys
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
-import psutil
+try:
+    import psutil
+except ImportError:
+    psutil = None
 
 
 @dataclass
