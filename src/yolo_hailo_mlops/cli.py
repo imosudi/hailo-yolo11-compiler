@@ -13,30 +13,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from yolo_hailo_mlops.calibration.selector import CalibrationSelector
 from yolo_hailo_mlops.checksums import create_artifact_record
 from yolo_hailo_mlops.config import AppConfig, load_config
-from yolo_hailo_mlops.dataset.validator import DatasetValidator
-from yolo_hailo_mlops.evaluation.comparison import build_evaluation_report
-from yolo_hailo_mlops.evaluation.onnx import compare_pytorch_onnx_numerical, evaluate_onnx_model
-from yolo_hailo_mlops.evaluation.pytorch import evaluate_pytorch_model
 from yolo_hailo_mlops.exceptions import ConfigurationError, YoloHailoError
-from yolo_hailo_mlops.export.onnx_exporter import ONNXExporter
-from yolo_hailo_mlops.hailo.compiler import HailoCompiler
 from yolo_hailo_mlops.hailo.environment import detect_hailo_environment
-from yolo_hailo_mlops.hailo.optimizer import HailoOptimizer
-from yolo_hailo_mlops.hailo.parser import HailoParser
-from yolo_hailo_mlops.hailo.runtime import HailoRuntimeValidator
-from yolo_hailo_mlops.hailo.validator import validate_hef
 from yolo_hailo_mlops.logging import PipelineLogger, get_logger
 from yolo_hailo_mlops.manifest import RunManifest
-from yolo_hailo_mlops.performance.latency import benchmark_onnx_latency
-from yolo_hailo_mlops.performance.resources import collect_performance_report
-from yolo_hailo_mlops.performance.throughput import calculate_throughput_from_latency
 from yolo_hailo_mlops.provenance import get_dependency_versions, get_environment_info
 from yolo_hailo_mlops.state import ExecutionMode, PhaseName, PhaseState, PipelineStatus, StateMachine
-from yolo_hailo_mlops.training.trainer import YOLOTrainer
-from yolo_hailo_mlops.training.validator import validate_checkpoint
 from yolo_hailo_mlops.utils.filesystem import atomic_write, ensure_dir, safe_symlink_or_copy
 
 
@@ -142,6 +126,22 @@ class PipelineRunner:
         print("\n================================================================================")
         print(" SUMMARY DIAGNOSTIC:")
         print(f" {hailo_env.diagnostic}")
+
+        missing_core = [
+            label
+            for pkg, label in [
+                ("numpy", "NumPy"),
+                ("pyyaml", "PyYAML"),
+                ("pillow", "Pillow"),
+            ]
+            if deps.get(pkg, {}).get("status") != "available"
+        ]
+        if missing_core:
+            print(f"\n WARNING: Foundation packages missing: {', '.join(missing_core)}.")
+            print(" To install foundation dependencies, run:")
+            print("   pip install -e \".[dev]\"")
+            print(" Or run the automated bootstrapper:")
+            print("   ./scripts/bootstrap.sh")
         print("================================================================================")
         return 0
 
@@ -189,8 +189,45 @@ class PipelineRunner:
         print("================================================================================")
         return 0
 
+    def run_dataset(self) -> int:
+        """Execute Phase A (Dataset validation)."""
+        try:
+            from yolo_hailo_mlops.dataset.validator import DatasetValidator
+        except (ImportError, ModuleNotFoundError) as e:
+            raise ConfigurationError(
+                f"Missing dependency for dataset validation: {e}. Run 'pip install -e \".[dev]\"' or './scripts/bootstrap.sh'.",
+                code="E-DATA-001",
+                phase="dataset_validation",
+                remediation="Install dataset validation dependencies with: pip install -e \".[dev]\"",
+            ) from e
+
+        self.logger.info("Starting Dataset Pre-flight Validation...", phase="dataset_validation")
+        self.sm.start_phase(PhaseName.DATASET_VALIDATION)
+        validator = DatasetValidator(self.config.dataset.yaml)
+        report = validator.validate(fail_fast=True)
+        self.sm.complete_phase(PhaseName.DATASET_VALIDATION, metadata=report.to_dict())
+        self.logger.info("Dataset validation passed successfully.", phase="dataset_validation")
+        total_images = report.train_stats.num_images + report.val_stats.num_images + (report.test_stats.num_images if report.test_stats else 0)
+        total_labels = report.train_stats.num_labels + report.val_stats.num_labels + (report.test_stats.num_labels if report.test_stats else 0)
+        print("\n" + "=" * 80)
+        print(" DATASET PRE-FLIGHT VALIDATION: SUCCESS")
+        print(f" Images: {total_images:,} | Labels: {total_labels:,} | Classes: {report.num_classes}")
+        print("=" * 80)
+        return 0
+
     def run_train(self) -> Path:
         """Execute Phase A (Dataset validation) and Phase B (Training)."""
+        try:
+            from yolo_hailo_mlops.dataset.validator import DatasetValidator
+            from yolo_hailo_mlops.training.trainer import YOLOTrainer
+        except (ImportError, ModuleNotFoundError) as e:
+            raise ConfigurationError(
+                f"Missing dependency for training: {e}. Run 'pip install -e \".[training]\"' or './scripts/bootstrap.sh'.",
+                code="E-TRAIN-007",
+                phase="training",
+                remediation="Install training dependencies with: pip install -e \".[training]\"",
+            ) from e
+
         # Phase A: Dataset validation
         self.logger.info("Starting Dataset Pre-flight Validation...", phase="dataset_validation")
         self.sm.start_phase(PhaseName.DATASET_VALIDATION)
@@ -214,6 +251,17 @@ class PipelineRunner:
 
     def run_export(self, checkpoint_path: Optional[Path] = None) -> Path:
         """Execute Phase C (FP32 ONNX Export) and validation."""
+        try:
+            from yolo_hailo_mlops.export.onnx_exporter import ONNXExporter
+            from yolo_hailo_mlops.evaluation.onnx import compare_pytorch_onnx_numerical
+        except (ImportError, ModuleNotFoundError) as e:
+            raise ConfigurationError(
+                f"Missing dependency for ONNX export: {e}. Run 'pip install -e \".[onnx]\"' or './scripts/bootstrap.sh'.",
+                code="E-EXP-004",
+                phase="onnx_export",
+                remediation="Install ONNX dependencies with: pip install -e \".[onnx]\"",
+            ) from e
+
         ckpt = checkpoint_path or (self.run_dir / "pytorch" / "best.pt")
         if not ckpt.is_file():
             ckpt = Path(self.root_artifacts / "pytorch" / "best.pt")
@@ -241,6 +289,16 @@ class PipelineRunner:
 
     def run_calibrate(self) -> Tuple[Path, Path]:
         """Execute Phase D (Deterministic Calibration Dataset generation)."""
+        try:
+            from yolo_hailo_mlops.calibration.selector import CalibrationSelector
+        except (ImportError, ModuleNotFoundError) as e:
+            raise ConfigurationError(
+                f"Missing dependency for calibration: {e}. Run 'pip install -e \".[dev]\"' or './scripts/bootstrap.sh'.",
+                code="E-CAL-003",
+                phase="calibration",
+                remediation="Install calibration dependencies with: pip install -e \".[dev]\"",
+            ) from e
+
         self.logger.info("Starting deterministic calibration sampling...", phase="calibration")
         self.sm.start_phase(PhaseName.CALIBRATION)
         selector = CalibrationSelector(self.config, self.run_dir)
@@ -273,6 +331,19 @@ class PipelineRunner:
             self.sm.mark_not_executed(PhaseName.HAILO_OPTIMISATION, reason)
             self.sm.mark_not_executed(PhaseName.HAILO_COMPILE, reason)
             return None
+
+        try:
+            from yolo_hailo_mlops.hailo.compiler import HailoCompiler
+            from yolo_hailo_mlops.hailo.optimizer import HailoOptimizer
+            from yolo_hailo_mlops.hailo.parser import HailoParser
+            from yolo_hailo_mlops.hailo.validator import validate_hef
+        except (ImportError, ModuleNotFoundError) as e:
+            raise ConfigurationError(
+                f"Missing dependency for Hailo compilation: {e}. Run 'pip install -e \".[dev]\"' or './scripts/bootstrap.sh'.",
+                code="E-COMP-001",
+                phase="hailo_compile",
+                remediation="Install compilation dependencies with: pip install -e \".[dev]\"",
+            ) from e
 
         # 1. Parse
         onnx_p = onnx_path or (self.run_dir / "onnx" / "model.onnx")
@@ -322,6 +393,22 @@ class PipelineRunner:
         hef_path: Optional[Path] = None,
     ) -> None:
         """Execute Phase I (Quantitative Accuracy) and Phase J (Runtime smoke test)."""
+        try:
+            from yolo_hailo_mlops.evaluation.comparison import build_evaluation_report
+            from yolo_hailo_mlops.evaluation.onnx import evaluate_onnx_model
+            from yolo_hailo_mlops.evaluation.pytorch import evaluate_pytorch_model
+            from yolo_hailo_mlops.hailo.runtime import HailoRuntimeValidator
+            from yolo_hailo_mlops.performance.latency import benchmark_onnx_latency
+            from yolo_hailo_mlops.performance.resources import collect_performance_report
+            from yolo_hailo_mlops.performance.throughput import calculate_throughput_from_latency
+        except (ImportError, ModuleNotFoundError) as e:
+            raise ConfigurationError(
+                f"Missing dependency for validation: {e}. Run 'pip install -e \".[training,onnx]\"' or './scripts/bootstrap.sh'.",
+                code="E-ACC-002",
+                phase="accuracy_validation",
+                remediation="Install validation dependencies with: pip install -e \".[training,onnx]\"",
+            ) from e
+
         ckpt = checkpoint_path or (self.run_dir / "pytorch" / "best.pt")
         if not ckpt.is_file():
             ckpt = Path(self.root_artifacts / "pytorch" / "best.pt")
@@ -530,7 +617,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    parser.add_argument("command", choices=["doctor", "train", "export", "calibrate", "compile", "validate", "all"],
+    parser.add_argument("command", choices=["doctor", "dataset", "train", "export", "calibrate", "compile", "validate", "all"],
                         help="Pipeline phase to execute")
     parser.add_argument("--config", "-c", type=str, default="config/config.yaml",
                         help="Path to YAML configuration file")
@@ -589,6 +676,8 @@ def main() -> None:
         cmd = args.command
         if cmd == "doctor":
             sys.exit(runner.run_doctor())
+        elif cmd == "dataset":
+            sys.exit(runner.run_dataset())
         elif cmd == "train":
             runner.run_train()
         elif cmd == "export":

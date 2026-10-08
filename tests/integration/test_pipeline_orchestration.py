@@ -64,3 +64,23 @@ def test_report_generation(sample_config: AppConfig, temp_workspace: Path) -> No
     md_content = report_md_p.read_text(encoding="utf-8")
     assert "# Hailo-8L YOLO11 Pipeline Validation Report" in md_content
     assert runner.run_id in md_content
+
+
+@pytest.mark.integration
+def test_pipeline_dataset_phase(sample_config: AppConfig, temp_workspace: Path) -> None:
+    """Verify that run_dataset executes pre-flight checks and returns exit code 0."""
+    runner = PipelineRunner(sample_config)
+    exit_code = runner.run_dataset()
+    assert exit_code == 0
+    assert "dataset_validation" in runner.sm.phases
+
+
+@pytest.mark.integration
+def test_pipeline_compile_phase_portable_skip(sample_config: AppConfig, temp_workspace: Path) -> None:
+    """Verify that run_compile cleanly skips compilation when Hailo DFC is absent."""
+    with patch("yolo_hailo_mlops.cli.detect_hailo_environment") as mock_env:
+        mock_env.return_value = create_mock_hailo_environment(has_dfc=False)
+        runner = PipelineRunner(sample_config)
+        hef_path = runner.run_compile()
+        assert hef_path is None
+

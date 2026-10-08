@@ -7,7 +7,10 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import yaml
+try:
+    import yaml
+except ImportError:
+    yaml = None
 
 from yolo_hailo_mlops.exceptions import ConfigurationError
 from yolo_hailo_mlops.state import ExecutionMode
@@ -218,17 +221,18 @@ def load_config(
     config_file_path = Path(target_config)
 
     if config_file_path.exists():
-        try:
-            with open(config_file_path, "r", encoding="utf-8") as f:
-                loaded = yaml.safe_load(f)
-                if isinstance(loaded, dict):
-                    raw = loaded
-        except Exception as e:
-            raise ConfigurationError(
-                f"Failed to parse YAML configuration file '{config_file_path}': {e}",
-                code="E-CFG-001",
-                artifact=str(config_file_path),
-            ) from e
+        if yaml is not None:
+            try:
+                with open(config_file_path, "r", encoding="utf-8") as f:
+                    loaded = yaml.safe_load(f)
+                    if isinstance(loaded, dict):
+                        raw = loaded
+            except Exception as e:
+                raise ConfigurationError(
+                    f"Failed to parse YAML configuration file '{config_file_path}': {e}",
+                    code="E-CFG-001",
+                    artifact=str(config_file_path),
+                ) from e
 
     # 2. Extract nested dictionaries
     proj_d = raw.get("project", {})

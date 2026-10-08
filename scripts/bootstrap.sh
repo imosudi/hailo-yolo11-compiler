@@ -31,7 +31,10 @@ if [ -z "${PYTHON_BIN}" ]; then
 fi
 
 VENV_DIR="${REPO_ROOT}/.venv"
-if [ ! -d "${VENV_DIR}" ]; then
+if [ ! -d "${VENV_DIR}" ] && [ -d "${REPO_ROOT}/venv" ]; then
+    VENV_DIR="${REPO_ROOT}/venv"
+    echo "Using existing virtual environment at ${VENV_DIR}..."
+elif [ ! -d "${VENV_DIR}" ]; then
     echo "Creating virtual environment at ${VENV_DIR}..."
     "${PYTHON_BIN}" -m venv "${VENV_DIR}"
 fi
@@ -49,6 +52,10 @@ pip install -e "${REPO_ROOT}[dev]"
 echo ""
 echo "=== Bootstrap Complete ==="
 echo "To activate your environment, run:"
-echo "    source .venv/bin/activate"
+if [ "${VENV_DIR}" = "${REPO_ROOT}/venv" ]; then
+    echo "    source venv/bin/activate"
+else
+    echo "    source .venv/bin/activate"
+fi
 echo "To verify system readiness, run:"
 echo "    python train_and_compile.py doctor"
