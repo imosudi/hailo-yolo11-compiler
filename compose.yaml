@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  compiler:
+    build:
+      context: .
+      dockerfile: Containerfile
+    image: hailo-yolo11-compiler:latest
+    container_name: yolo11_compiler
+    environment:
+      - YOLO_HAILO_EXECUTION_MODE=portable
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./artifacts:/workspace/artifacts:Z
+      - ./data:/workspace/data:ro,Z
+      - ./config:/workspace/config:ro,Z
+    command: ["doctor"]
+    deploy:
+      resources:
+        limits:
+          cpus: "8"
+          memory: 16G
