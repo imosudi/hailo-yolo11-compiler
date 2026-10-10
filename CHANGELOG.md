@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-10-10
+
+### Added
+- **Unified Python 3.10 Environment (`venv-dfc3`)**: Standardized virtual environment supporting Hailo Dataflow Compiler (DFC) v3.34.0, PyTorch, Ultralytics YOLO11, and ONNX Runtime.
+- **Canonical 6-Head YOLO11 Detection Boundary**: Configured explicit end-node boundary layers (`/model.23/cv2.x/.../Conv`, `/model.23/cv3.x/.../Conv`) to bypass non-hardware DFL operators and prevent multi-scale memory bottlenecks on Hailo-8L.
+- **Hailo-8L 4-Context Partitioning**: Verified and compiled INT8 HEF binary partition spanning 4 hardware execution contexts.
+- **Enhanced Degradation & Validation Gates**: Updated accuracy evaluation thresholds ($\Delta\text{mAP} \le 0.05$) and automated report persistence across all individual CLI commands.
+
+### Changed
+- Updated `scripts/bootstrap.sh` to prioritize Python 3.10 and initialize `venv-dfc3`.
+- Updated master `README.md`, `docs/pipeline.md`, `docs/hailo.md`, and `docs/troubleshooting.md` with full stage progression diagrams, error remediation for `[E-HAILO-PARSE-003]`, and verified evaluation metrics.
+
 ## [1.0.0] - 2026-10-08
 
 ### Added

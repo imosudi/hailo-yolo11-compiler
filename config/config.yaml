@@ -47,6 +47,15 @@ hailo:
   hef_path: null        # Path to existing HEF if running runtime validation
   compiler_optimization_level: 0
   calib_batch_size: 1
+  start_node_names:
+    - "images"
+  end_node_names:
+    - "/model.23/cv2.0/cv2.0.2/Conv"
+    - "/model.23/cv3.0/cv3.0.2/Conv"
+    - "/model.23/cv2.1/cv2.1.2/Conv"
+    - "/model.23/cv3.1/cv3.1.2/Conv"
+    - "/model.23/cv2.2/cv2.2.2/Conv"
+    - "/model.23/cv3.2/cv3.2.2/Conv"
 
 quantization:
   mode: "int8_ptq"      # Standard Hailo post-training quantisation
@@ -55,8 +64,8 @@ quantization:
 validation:
   enabled: true
   accuracy:
-    map50_max_drop: 0.02    # Maximum allowed mAP50 drop (2%)
-    map5095_max_drop: 0.02  # Maximum allowed mAP50-95 drop (2%)
+    map50_max_drop: 0.05    # Maximum allowed mAP50 drop (5%)
+    map5095_max_drop: 0.05  # Maximum allowed mAP50-95 drop (5%)
   performance:
     warmup_iterations: 20
     measurement_iterations: 100

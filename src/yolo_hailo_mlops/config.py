@@ -76,6 +76,8 @@ class HailoConfig:
     hef_path: Optional[str] = None
     compiler_optimization_level: int = 0
     calib_batch_size: int = 1
+    start_node_names: Optional[List[str]] = None
+    end_node_names: Optional[List[str]] = None
 
 
 @dataclass

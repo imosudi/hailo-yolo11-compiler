@@ -10,52 +10,60 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 echo "=== hailo-yolo11-compiler: Environment Bootstrapper ==="
 echo "Repository Root: ${REPO_ROOT}"
 
-# Detect Python interpreter (3.10+)
+# Detect Python interpreter (Prioritize Python 3.10 for Hailo DFC compatibility)
 PYTHON_BIN=""
-for candidate in python3.12 python3.11 python3.10 python3; do
+for candidate in python3.10 python3.11 python3.12 python3; do
     if command -v "${candidate}" &> /dev/null; then
         PY_VER=$("${candidate}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
         PY_MAJOR=$("${candidate}" -c 'import sys; print(sys.version_info.major)')
         PY_MINOR=$("${candidate}" -c 'import sys; print(sys.version_info.minor)')
-        if [ "${PY_MAJOR}" -eq 3 ] && [ "${PY_MINOR}" -ge 10 ]; then
+        if [ "${PY_MAJOR}" -eq 3 ] && [ "${PY_MINOR}" -eq 10 ]; then
             PYTHON_BIN="${candidate}"
-            echo "Selected Python interpreter: ${PYTHON_BIN} (v${PY_VER})"
+            echo "Selected canonical Python 3.10 interpreter: ${PYTHON_BIN} (v${PY_VER})"
             break
+        elif [ "${PY_MAJOR}" -eq 3 ] && [ "${PY_MINOR}" -ge 10 ] && [ -z "${PYTHON_BIN}" ]; then
+            PYTHON_BIN="${candidate}"
+            echo "Candidate Python interpreter: ${PYTHON_BIN} (v${PY_VER})"
         fi
     fi
 done
 
 if [ -z "${PYTHON_BIN}" ]; then
-    echo "ERROR: Python 3.10+ is required but was not found." >&2
+    echo "ERROR: Python 3.10+ is required (Python 3.10 strongly recommended for Hailo DFC)." >&2
+    echo "Install via: sudo apt-get install -y python3.10 python3.10-venv python3.10-dev" >&2
     exit 1
 fi
 
-VENV_DIR="${REPO_ROOT}/.venv"
+VENV_DIR="${REPO_ROOT}/venv-dfc3"
 if [ ! -d "${VENV_DIR}" ] && [ -d "${REPO_ROOT}/venv" ]; then
     VENV_DIR="${REPO_ROOT}/venv"
     echo "Using existing virtual environment at ${VENV_DIR}..."
 elif [ ! -d "${VENV_DIR}" ]; then
-    echo "Creating virtual environment at ${VENV_DIR}..."
+    echo "Creating virtual environment at ${VENV_DIR} using ${PYTHON_BIN}..."
     "${PYTHON_BIN}" -m venv "${VENV_DIR}"
 fi
 
-echo "Activating virtual environment..."
+echo "Activating virtual environment (${VENV_DIR})..."
 # shellcheck disable=SC1091
 source "${VENV_DIR}/bin/activate"
 
 echo "Upgrading pip, setuptools, wheel..."
 pip install --upgrade pip setuptools wheel
 
-echo "Installing hailo-yolo11-compiler in editable mode with development dependencies..."
-pip install -e "${REPO_ROOT}[dev]"
+# Install local Hailo DFC wheel if present
+DFC_WHEEL=$(find "${REPO_ROOT}" -maxdepth 1 -name "hailo_dataflow_compiler-3.34.0-*.whl" -print -quit 2>/dev/null || true)
+if [ -n "${DFC_WHEEL}" ] && [ -f "${DFC_WHEEL}" ]; then
+    echo "Installing Hailo Dataflow Compiler from ${DFC_WHEEL}..."
+    pip install "${DFC_WHEEL}"
+fi
+
+echo "Installing hailo-yolo11-compiler in editable mode with all dependencies..."
+pip install -e "${REPO_ROOT}[dev,training,onnx]"
 
 echo ""
 echo "=== Bootstrap Complete ==="
 echo "To activate your environment, run:"
-if [ "${VENV_DIR}" = "${REPO_ROOT}/venv" ]; then
-    echo "    source venv/bin/activate"
-else
-    echo "    source .venv/bin/activate"
-fi
+echo "    source $(basename "${VENV_DIR}")/bin/activate"
+echo ""
 echo "To verify system readiness, run:"
 echo "    python train_and_compile.py doctor"

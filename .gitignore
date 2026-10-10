@@ -155,6 +155,7 @@ activemq-data/
 .venv
 env/
 venv/
+venv-dfc3/
 ENV/
 env.bak/
 venv.bak/
@@ -246,4 +247,4 @@ runs/
 *.agent.md
 hailo-yolo11-compiler.md
 edge-vision-monitor.md
-
+*.whl

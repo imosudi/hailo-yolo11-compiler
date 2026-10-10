@@ -145,9 +145,10 @@ The doctor interrogates:
 
 | Error Code | Phase | Cause | Actionable Remediation |
 | :--- | :--- | :--- | :--- |
-| `E-HAILO-ENV-001` | `hailo_environment` | Hailo DFC or HailoRT not installed | Install Hailo DFC v3.28+ on compilation host or use container. |
-| `E-HAILO-ENV-002` | `hailo_environment` | Incompatible Hailo DFC version | Upgrade Hailo DFC to supported version v3.28+. |
+| `E-HAILO-ENV-001` | `hailo_environment` | Hailo DFC or HailoRT not installed | Install Hailo DFC v3.34.0 inside Python 3.10 `venv-dfc3` environment or use container. |
+| `E-HAILO-ENV-002` | `hailo_environment` | Incompatible Python runtime or DFC version | Activate Python 3.10 virtual environment (`source venv-dfc3/bin/activate`) with `numpy==1.26.4`. |
 | `E-HAILO-PARSE-001` | `hailo_parse` | Input ONNX model missing | Run export stage first or supply valid path via `--model`. |
+| `E-HAILO-PARSE-003` | `hailo_parse` | Hailo ONNX parse failure (`UnsupportedShuffleLayerError` in DFL reshape/transpose) | Configure the 6 canonical convolution output tensors in `config.yaml` (`end_node_names`) across scales ($80\times 80, 40\times 40, 20\times 20$) to bypass post-processing DFL. |
 | `E-HAILO-PARSE-004` | `hailo_parse` | Hailo ONNX parser failure | Inspect unsupported ONNX operators; ensure NMS is not embedded in the ONNX graph (`nms: auto`). |
 | `E-HAILO-OPT-001` | `hailo_optimisation` | Input HAR archive not found | Ensure parse stage succeeded and emitted `model.har`. |
 | `E-HAILO-OPT-002` | `hailo_optimisation` | Calibration data `calib_data.npy` missing | Run calibration stage first or check file permissions. |
@@ -167,7 +168,7 @@ The doctor interrogates:
 | :--- | :--- | :--- | :--- |
 | `E-ACC-001` | `accuracy_validation` | Evaluation dataset missing | Verify validation split in `dataset.yaml` exists and contains labelled images. |
 | `E-ACC-002` | `accuracy_validation` | Evaluation execution failed | Check PyTorch and ONNX Runtime dependencies. |
-| `E-ACC-005` | `accuracy_validation` | mAP degradation exceeded allowed gate threshold | Increase calibration dataset image count (e.g. 200 samples); verify calibration set is representative of validation distribution; or increase `map50_max_drop`. |
+| `E-ACC-005` | `accuracy_validation` | mAP degradation exceeded allowed gate threshold | Increase calibration dataset image count (e.g. 200 samples); verify calibration set is representative of validation distribution; or adjust `map50_max_drop: 0.05` in `config/config.yaml`. |
 
 ---
 

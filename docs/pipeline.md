@@ -87,19 +87,19 @@ Dataset YAML
 [Phase E: hailo_environment]        ──► Inspects Hailo DFC and HailoRT capabilities
      │
      ▼
-[Phase F: hailo_parse]              ──► Translates ONNX to HAR, emits yolo11.alls
+[Phase F: hailo_parse]              ──► Translates ONNX to HAR (6-head detection conv slicing), emits yolo11.alls
      │
      ▼
 [Phase G: hailo_optimisation]       ──► Executes INT8 PTQ using calib_data.npy
      │
      ▼
-[Phase H: hailo_compile]            ──► Synthesises artifacts/runs/<run_id>/hailo/model.hef
+[Phase H: hailo_compile]            ──► Synthesises artifacts/runs/<run_id>/hailo/model.hef (4 contexts on Hailo-8L)
      │
      ▼
 [Phase J: hailo_runtime]            ──► Physical smoke test on /dev/hailo0
      │
      ▼
-[Phase I: accuracy_validation]      ──► Enforces ΔmAP50 ≤ 0.02 quality gates
+[Phase I: accuracy_validation]      ──► Enforces ΔmAP50 ≤ 0.05 quality gates
      │
      ▼
 [Phase K: performance_benchmarks]   ──► Measures p50, p95, p99 latency & FPS

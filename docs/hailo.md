@@ -40,6 +40,13 @@ model.onnx (FP32, 1×3×640×640)
        ▼
 [Phase F: hailo_parse]
   ├── Input Stream: images (1×3×640×640, float32)
+  ├── End Node Boundary: 6 Canonical YOLO11 Detection Conv Heads
+  │     ├── /model.23/cv2.0/cv2.0.2/Conv (Box Scale 0: 80×80)
+  │     ├── /model.23/cv3.0/cv3.0.2/Conv (Class Scale 0: 80×80)
+  │     ├── /model.23/cv2.1/cv2.1.2/Conv (Box Scale 1: 40×40)
+  │     ├── /model.23/cv3.1/cv3.1.2/Conv (Class Scale 1: 40×40)
+  │     ├── /model.23/cv2.2/cv2.2.2/Conv (Box Scale 2: 20×20)
+  │     └── /model.23/cv3.2/cv3.2.2/Conv (Class Scale 2: 20×20)
   └── Model Script: yolo11.alls
        │
        ▼
@@ -54,13 +61,13 @@ model_quantized.har (Quantised INT8 representation)
        │
        ▼
 [Phase H: hailo_compile]
-  ├── Layer Placement & Cluster Allocation
+  ├── Layer Placement & Cluster Allocation (4 Hardware Contexts on Hailo-8L)
   ├── Inter-cluster Dataflow Routing
   ├── Cycle-accurate Execution Scheduling
   └── Target Architecture: hailo8l
        │
        ▼
-model.hef (Hailo Executable Format binary)
+model.hef (Hailo Executable Format binary, ~9.4 MB)
 ```
 
 ---

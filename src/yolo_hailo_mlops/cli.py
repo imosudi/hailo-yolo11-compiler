@@ -680,14 +680,19 @@ def main() -> None:
             sys.exit(runner.run_dataset())
         elif cmd == "train":
             runner.run_train()
+            runner.generate_reports()
         elif cmd == "export":
             runner.run_export()
+            runner.generate_reports()
         elif cmd == "calibrate":
             runner.run_calibrate()
+            runner.generate_reports()
         elif cmd == "compile":
             runner.run_compile()
+            runner.generate_reports()
         elif cmd == "validate":
             runner.run_validate()
+            runner.generate_reports()
         elif cmd == "all":
             sys.exit(runner.run_all())
 

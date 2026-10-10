@@ -14,6 +14,16 @@ from yolo_hailo_mlops.utils.hashing import compute_sha256
 from yolo_hailo_mlops.utils.subprocess import safe_run
 
 
+DEFAULT_YOLO11_DETECTION_END_NODES = [
+    "/model.23/cv2.0/cv2.0.2/Conv",
+    "/model.23/cv3.0/cv3.0.2/Conv",
+    "/model.23/cv2.1/cv2.1.2/Conv",
+    "/model.23/cv3.1/cv3.1.2/Conv",
+    "/model.23/cv2.2/cv2.2.2/Conv",
+    "/model.23/cv3.2/cv3.2.2/Conv",
+]
+
+
 class HailoParser:
     """Translates FP32 ONNX graphs to Hailo Archive (HAR) representation."""
 
@@ -56,19 +66,52 @@ class HailoParser:
         script_path = self.output_dir / "yolo11.alls"
         self.create_model_script(script_path)
 
+        start_nodes = self.config.hailo.start_node_names or ["images"]
+        end_nodes = self.config.hailo.end_node_names or DEFAULT_YOLO11_DETECTION_END_NODES
+
         # 1. Python SDK mode
         if env.dfc_mode == "sdk" and self.config.hailo.sdk_mode in ("auto", "sdk"):
             try:
+                import re
                 from hailo_sdk_client import ClientRunner
 
                 net_name = f"yolo11_{self.config.model.variant}"
                 runner = ClientRunner(hw_arch=self.config.hailo.target)
-                runner.translate_onnx_model(
-                    model=str(onnx_p),
-                    net_name=net_name,
-                    start_node_names=["images"],
-                    end_node_names=None,
-                )
+
+                try:
+                    runner.translate_onnx_model(
+                        model=str(onnx_p),
+                        net_name=net_name,
+                        start_node_names=start_nodes,
+                        end_node_names=end_nodes,
+                    )
+                except Exception as parse_err:
+                    err_msg = str(parse_err)
+                    # If parsing failed with full graph, try 6 standard detection heads
+                    if end_nodes != DEFAULT_YOLO11_DETECTION_END_NODES:
+                        runner = ClientRunner(hw_arch=self.config.hailo.target)
+                        runner.translate_onnx_model(
+                            model=str(onnx_p),
+                            net_name=net_name,
+                            start_node_names=start_nodes,
+                            end_node_names=DEFAULT_YOLO11_DETECTION_END_NODES,
+                        )
+                    elif "using these end node names:" in err_msg:
+                        m = re.search(r"using these end node names:\s*([^\n\r]+)", err_msg)
+                        if m:
+                            suggested_nodes = [n.strip() for n in m.group(1).split(",") if n.strip()]
+                            runner = ClientRunner(hw_arch=self.config.hailo.target)
+                            runner.translate_onnx_model(
+                                model=str(onnx_p),
+                                net_name=net_name,
+                                start_node_names=start_nodes,
+                                end_node_names=suggested_nodes,
+                            )
+                        else:
+                            raise
+                    else:
+                        raise
+
                 runner.load_model_script(str(script_path))
                 runner.save_har(str(har_target))
             except Exception as e:
@@ -96,6 +139,10 @@ class HailoParser:
                 "--model-script",
                 str(script_path),
             ]
+            if start_nodes:
+                cmd.extend(["--start-node-names", *start_nodes])
+            if end_nodes:
+                cmd.extend(["--end-node-names", *end_nodes])
             safe_run(cmd, error_code="E-HAILO-PARSE-004", phase="hailo_parse")
 
         if not har_target.is_file() or har_target.stat().st_size == 0:
