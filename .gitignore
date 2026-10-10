@@ -222,15 +222,20 @@ __marimo__/
 
 # hailo-yolo11-compiler additions
 artifacts/runs/*
-artifacts/pytorch/*
-artifacts/onnx/*
-artifacts/hailo/*
-artifacts/calibration/*
+artifacts/hailo/model/
+artifacts/latest
+artifacts/calibration/calibration_manifest.json
+#artifacts/pytorch/*
+#artifacts/onnx/*
+#artifacts/hailo/*
+#artifacts/calibration/*
 !artifacts/**/.gitkeep
 *.pt
 *.onnx
 *.har
 *.hef
+*.npy
+*.npz
 data/
 runs/
 .venv/
