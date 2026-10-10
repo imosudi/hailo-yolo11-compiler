@@ -230,10 +230,10 @@ artifacts/calibration/calibration_manifest.json
 #artifacts/hailo/*
 #artifacts/calibration/*
 !artifacts/**/.gitkeep
-*.pt
-*.onnx
-*.har
-*.hef
+#*.pt
+#*.onnx
+#*.har
+#*.hef
 *.npy
 *.npz
 data/
