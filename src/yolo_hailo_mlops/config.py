@@ -402,6 +402,8 @@ def load_config(
                 app_cfg.execution_mode = ExecutionMode(cli_overrides["execution_mode"].lower())
             except ValueError:
                 pass
+        if "require_hardware" in cli_overrides and cli_overrides["require_hardware"] is not None:
+            app_cfg.hailo.require_hardware = bool(cli_overrides["require_hardware"])
 
     app_cfg.validate()
     return app_cfg

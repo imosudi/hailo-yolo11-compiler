@@ -645,6 +645,8 @@ def main() -> None:
                         help="Enable verbose debug logging")
     parser.add_argument("--dry-run", action="store_true", default=False,
                         help="Show execution plan without modifying artifacts")
+    parser.add_argument("--require-hardware", action="store_true", default=False,
+                        help="Fail if physical Hailo-8L accelerator missing")
     parser.add_argument("--execution-mode", choices=["auto", "portable", "hailo_compile", "hailo_runtime"],
                         default="auto", help="Boundary execution mode")
 
@@ -664,6 +666,7 @@ def main() -> None:
         "verbose": args.verbose,
         "dry_run": args.dry_run,
         "execution_mode": args.execution_mode,
+        "require_hardware": args.require_hardware,
     }
 
     try:
