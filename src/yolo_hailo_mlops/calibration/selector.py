@@ -60,7 +60,15 @@ class CalibrationSelector:
 
         base_dir = yaml_path.parent
         if data.get("path"):
-            base_dir = (base_dir / data["path"]).resolve()
+            cand_p = Path(data["path"])
+            if cand_p.is_absolute():
+                base_dir = cand_p
+            elif (yaml_path.parent / cand_p).is_dir():
+                base_dir = (yaml_path.parent / cand_p).resolve()
+            elif cand_p.is_dir():
+                base_dir = cand_p.resolve()
+            else:
+                base_dir = (yaml_path.parent / cand_p).resolve()
 
         train_entry = data.get("train")
         if not train_entry:

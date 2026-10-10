@@ -225,7 +225,15 @@ class DatasetValidator:
         base_dir = self.yaml_path.parent
         root_dir_raw = data.get("path")
         if root_dir_raw:
-            base_dir = (base_dir / root_dir_raw).resolve()
+            cand_p = Path(root_dir_raw)
+            if cand_p.is_absolute():
+                base_dir = cand_p
+            elif (self.yaml_path.parent / cand_p).is_dir():
+                base_dir = (self.yaml_path.parent / cand_p).resolve()
+            elif cand_p.is_dir():
+                base_dir = cand_p.resolve()
+            else:
+                base_dir = (self.yaml_path.parent / cand_p).resolve()
 
         train_path_raw = data.get("train")
         val_path_raw = data.get("val")
