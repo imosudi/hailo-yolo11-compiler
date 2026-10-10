@@ -55,6 +55,11 @@ DFC_WHEEL=$(find "${REPO_ROOT}" -maxdepth 1 -name "hailo_dataflow_compiler-3.34.
 if [ -n "${DFC_WHEEL}" ] && [ -f "${DFC_WHEEL}" ]; then
     echo "Installing Hailo Dataflow Compiler from ${DFC_WHEEL}..."
     pip install "${DFC_WHEEL}"
+else
+    echo "NOTICE: No local Hailo DFC wheel found in ${REPO_ROOT}."
+    echo "To compile models to Hailo-8L HEF (Phases F, G, H):"
+    echo "  1. Download 'hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl' from https://hailo.ai/developer-zone/software-downloads/"
+    echo "  2. Place the wheel in this repository root and run: pip install ./hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl"
 fi
 
 echo "Installing hailo-yolo11-compiler in editable mode with all dependencies..."

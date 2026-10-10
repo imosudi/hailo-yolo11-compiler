@@ -32,6 +32,15 @@ Unlike traditional SIMD GPUs or vector DSPs, Hailo NPUs utilize a **spatial data
 
 ## 2. Hailo Compilation Chain (DFC Workflow)
 
+### Obtaining the Hailo Dataflow Compiler Wheel
+Hailo Dataflow Compiler (DFC) is licensed by Hailo Technologies and available via the **[Hailo Developer Zone](https://hailo.ai/developer-zone/software-downloads/)**:
+1. Log into your free Hailo Developer account.
+2. Under **Software Downloads** $\to$ **Dataflow Compiler (DFC)**, download: `hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl`.
+3. Place the file in the repository root directory and install with:
+   ```bash
+   pip install ./hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl
+   ```
+
 Translating a standard static FP32 ONNX graph into a hardware bitstream involves three discrete compiler phases:
 
 ```text

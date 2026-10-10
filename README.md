@@ -128,7 +128,20 @@ sudo apt-get update
 sudo apt-get install -y python3.10 python3.10-venv python3.10-dev git libgl1 libglib2.0-0 graphviz
 ```
 
-### 2. Create & Activate the Unified Virtual Environment (`venv-dfc3`)
+### 2. Download Hailo Dataflow Compiler (DFC) Wheel
+
+Because Hailo Dataflow Compiler is proprietary software licensed by Hailo Technologies, its `.whl` package must be obtained directly from the official Hailo Developer Zone:
+
+1. **Sign in / Register**: Create a free developer account at the **[Hailo Developer Zone](https://hailo.ai/developer-zone/software-downloads/)**.
+2. **Navigate to Software Downloads**: Go to the **Dataflow Compiler (DFC)** download section.
+3. **Download Wheel**: Select and download the Linux x86_64 wheel:
+   - File name: `hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl`
+4. **Place in Repository Root**: Move the downloaded wheel file into the root of this repository:
+   ```bash
+   cp ~/Downloads/hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl ./
+   ```
+
+### 3. Create & Activate Unified Virtual Environment (`venv-dfc3`)
 
 ```bash
 # Create Python 3.10 virtual environment
@@ -149,7 +162,7 @@ python train_and_compile.py doctor
 ```
 
 > [!TIP]
-> Alternatively, execute the automated bootstrapper:
+> Alternatively, execute the automated bootstrapper (which automatically detects and installs the wheel):
 > ```bash
 > ./scripts/bootstrap.sh
 > source venv-dfc3/bin/activate
