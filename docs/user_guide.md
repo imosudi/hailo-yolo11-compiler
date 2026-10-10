@@ -120,13 +120,17 @@ python train_and_compile.py all --config config/config.yaml
 Checks dataset integrity without starting training or compiler phases:
 
 ```bash
+# If initializing from bundled sample data:
+cp -r data_example data
+
+# Run dataset validator
 python train_and_compile.py dataset --dataset data/dataset.yaml
 ```
 
 **Common Outputs:**
 - Verifies label coordinates are strictly within $[0.0, 1.0]$.
 - Detects whether any images in `images/val` are duplicate hashes of images in `images/train` (train/val leakage).
-- Ensures at least 200 uncorrupted images are available for subsequent INT8 calibration.
+- Ensures sufficient uncorrupted images are available for subsequent INT8 calibration.
 
 ---
 

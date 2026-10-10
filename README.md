@@ -175,6 +175,21 @@ python train_and_compile.py doctor
 
 The compiler consumes object detection datasets organised in standard YOLO format.
 
+### Quickstart with Bundled Example Dataset (`data_example/`)
+
+For an immediate out-of-the-box run, or if you do not currently have access to an external dataset, a sample dataset is bundled in `data_example/`:
+
+```bash
+# Copy the example dataset to initialize data/ for immediate use
+cp -r data_example data
+
+# (Or rename the directory directly)
+# mv data_example data
+
+# Run pre-flight validation on the initialized dataset
+python train_and_compile.py dataset --dataset data/dataset.yaml
+```
+
 ### Directory Hierarchy
 
 ```text

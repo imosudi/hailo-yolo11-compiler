@@ -21,6 +21,21 @@ This manual provides an exhaustive guide to preparing, structuring, and verifyin
 
 The compiler requires datasets organised strictly according to the Ultralytics YOLO object detection directory format.
 
+### Quickstart with Bundled Example Dataset (`data_example/`)
+
+If you want to immediately test the pipeline or do not have an external custom dataset ready, a sample dataset is provided in `data_example/`:
+
+```bash
+# Instantiate the working dataset directory
+cp -r data_example data
+
+# (Or rename the directory directly)
+# mv data_example data
+
+# Validate dataset integrity
+python train_and_compile.py dataset --dataset data/dataset.yaml
+```
+
 ### Standard Directory Tree
 
 ```text
