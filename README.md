@@ -127,28 +127,47 @@ hailortcli scan
 
 ---
 
-## 4. Python Environment Setup
+## 4. Quickstart & Python Environment Setup
 
-The repository supports Python **3.10**, **3.11**, and **3.12** (Hailo Dataflow Compiler wheels require Python 3.10 or 3.11).
+The repository supports Python **3.10**, **3.11**, and **3.12** (Hailo Dataflow Compiler host wheels officially target Python 3.10 and 3.11).
+
+### Step-by-Step Installation
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/imosudi/hailo-yolo11-compiler.git
+# 1. Fork on GitHub and clone your fork (or clone upstream directly)
+git clone https://github.com/<your-username>/hailo-yolo11-compiler.git
+
+# 2. Navigate to the project directory
 cd hailo-yolo11-compiler
 
-# 2. Bootstrap virtual environment
-./scripts/bootstrap.sh
-source .venv/bin/activate
+# 3. (Optional) Configure upstream remote tracking
+git remote add upstream https://github.com/imosudi/hailo-yolo11-compiler.git
+git fetch upstream
 
-# 3. Install dependencies by tier
-pip install -e ".[dev]"               # Core state machine, CLI, testing
-pip install -e ".[training]"          # Ultralytics YOLO11, PyTorch, Torchvision
-pip install -e ".[onnx]"              # ONNX, ONNX Runtime, onnxsim
-pip install -e ".[all]"               # Complete portable stack
+# 4. Create and activate a dedicated Python virtual environment
+python3 -m venv venv
+source venv/bin/activate
 
-# 4. Run environment diagnostics
+# 5. Upgrade core packaging tools
+pip install --upgrade pip setuptools wheel
+
+# 6. Install dependencies by required tier:
+#    - Development & testing (state machine, CLI, validator):
+pip install -e ".[dev]"
+
+#    - Core ML & export (PyTorch, Ultralytics YOLO11, ONNX, ONNX Runtime):
+pip install -e ".[training,onnx]"
+
+# 7. Run the pre-flight environment diagnostic
 python train_and_compile.py doctor
 ```
+
+> [!TIP]
+> Alternatively, you can run the automated bootstrapper:
+> ```bash
+> ./scripts/bootstrap.sh
+> source venv/bin/activate
+> ```
 
 ---
 

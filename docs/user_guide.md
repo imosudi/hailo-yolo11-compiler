@@ -61,22 +61,31 @@ The pipeline orchestrates ten discrete phases through an explicit state machine:
 
 ---
 
-## 2. Environment Preparation
+## 2. Environment Preparation & Setup
 
-Before launching commands, activate your virtual environment:
-
-```bash
-cd /path/to/hailo-yolo11-compiler
-source .venv/bin/activate
-```
-
-Verify your environment readiness by running the pre-flight doctor:
+### Cloning, Virtual Environment & Installation
 
 ```bash
+# 1. Clone your fork or the repository
+git clone https://github.com/<your-username>/hailo-yolo11-compiler.git
+cd hailo-yolo11-compiler
+
+# 2. Create and activate a Python 3.10+ virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# 3. Upgrade packaging tools
+pip install --upgrade pip setuptools wheel
+
+# 4. Install development and ML dependencies
+pip install -e ".[dev]"
+pip install -e ".[training,onnx]"
+
+# 5. Verify system environment readiness
 python train_and_compile.py doctor
 ```
 
-The output will clearly state host capabilities, installed packages, compiler availability, and accelerator hardware detection.
+The doctor diagnostic clearly states host capabilities, installed packages, compiler availability, and accelerator hardware detection.
 
 ---
 

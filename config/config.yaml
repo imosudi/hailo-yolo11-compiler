@@ -15,7 +15,7 @@ dataset:
   yaml: "data/dataset.yaml"
   calibration:
     source: "train"     # "train" or "custom"
-    count: 200          # Recommended: 100-200
+    count: 100          # Recommended: 100-200
     seed: 42
     custom_dir: null
 

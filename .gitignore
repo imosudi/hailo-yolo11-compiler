@@ -231,6 +231,7 @@ artifacts/calibration/*
 *.har
 *.hef
 data/
+runs/
 .venv/
 .env
 
