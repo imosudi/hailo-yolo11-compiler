@@ -205,19 +205,34 @@ class Picamera2Source(BaseFrameSource):
         camera_num: int = 0,
         target_resolution: Optional[Tuple[int, int]] = None,
         target_fps: Optional[float] = None,
+        fallback_to_opencv: bool = True,
     ) -> None:
         self.camera_num = camera_num
         self._frame_count = 0
         self._width = target_resolution[0] if target_resolution else 640
         self._height = target_resolution[1] if target_resolution else 480
         self._fps = target_fps or 30.0
+        self._fallback_opencv: Optional[OpenCVCameraSource] = None
+        self.picam2 = None
 
         picam2_cls = try_import_picamera2()
         if picam2_cls is None:
+            if fallback_to_opencv:
+                print(
+                    f"[NOTICE] Picamera2 is not installed. Seamlessly utilizing OpenCV camera (/dev/video{camera_num}) instead of failing.\n"
+                    "         (To enable native Raspberry Pi CSI Camera Module, run './scripts/bootstrap.sh' or 'sudo apt install -y python3-picamera2')"
+                )
+                self._fallback_opencv = OpenCVCameraSource(
+                    device_index=camera_num,
+                    target_fps=target_fps,
+                    target_resolution=target_resolution,
+                )
+                return
+
             raise DeploymentError(
                 "Picamera2 is not installed. Install with 'sudo apt install -y python3-picamera2' or use OpenCV camera.",
                 code="E-DEPLOY-PICAM-001",
-                remediation="Run 'sudo apt-get install -y python3-picamera2' on Raspberry Pi OS, or use '--camera-type opencv' for USB webcam.",
+                remediation="Run './scripts/bootstrap.sh' or 'sudo apt-get install -y python3-picamera2', or use '--camera-type opencv'.",
             )
 
         try:
@@ -228,10 +243,24 @@ class Picamera2Source(BaseFrameSource):
             self.picam2.configure(config)
             self.picam2.start()
         except Exception as e:
+            if fallback_to_opencv:
+                print(
+                    f"[NOTICE] Picamera2 hardware device failed ({e}). Seamlessly utilizing OpenCV camera (/dev/video{camera_num})."
+                )
+                try:
+                    self._fallback_opencv = OpenCVCameraSource(
+                        device_index=camera_num,
+                        target_fps=target_fps,
+                        target_resolution=target_resolution,
+                    )
+                    return
+                except Exception:
+                    pass
+
             raise DeploymentError(
                 f"Failed to start Picamera2 hardware device: {e}",
                 code="E-DEPLOY-PICAM-002",
-                remediation="Verify ribbon cable connection and run 'rpicam-hello' to test hardware detection.",
+                remediation="Verify ribbon cable connection and run 'rpicam-hello' to test hardware detection, or use '--camera-type opencv'.",
             ) from e
 
     @property
@@ -240,10 +269,14 @@ class Picamera2Source(BaseFrameSource):
 
     @property
     def fps(self) -> float:
+        if self._fallback_opencv is not None:
+            return self._fallback_opencv.fps
         return self._fps
 
     @property
     def resolution(self) -> Tuple[int, int]:
+        if self._fallback_opencv is not None:
+            return self._fallback_opencv.resolution
         return (self._width, self._height)
 
     @property
@@ -251,6 +284,9 @@ class Picamera2Source(BaseFrameSource):
         return None
 
     def read_frame(self) -> Optional[FramePacket]:
+        if self._fallback_opencv is not None:
+            return self._fallback_opencv.read_frame()
+
         if not hasattr(self, "picam2") or self.picam2 is None:
             return None
         try:
@@ -267,6 +303,10 @@ class Picamera2Source(BaseFrameSource):
             return None
 
     def release(self) -> None:
+        if self._fallback_opencv is not None:
+            self._fallback_opencv.release()
+            self._fallback_opencv = None
+
         if hasattr(self, "picam2") and self.picam2 is not None:
             try:
                 self.picam2.stop()

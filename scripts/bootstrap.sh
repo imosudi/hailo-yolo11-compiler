@@ -10,34 +10,24 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 echo "=== hailo-yolo11-compiler: Environment Bootstrapper ==="
 echo "Repository Root: ${REPO_ROOT}"
 
-# ------------------------------------------------------------------------------
-# System Dependencies: Hardware Telemetry Tools (lm-sensors)
-# ------------------------------------------------------------------------------
-echo ""
-echo "--- Checking System Hardware Telemetry Tools (lm-sensors) ---"
-if ! command -v sensors &> /dev/null; then
-    echo "NOTICE: 'sensors' (lm-sensors) is not installed."
-    if command -v apt-get &> /dev/null; then
-        if [ "${EUID:-$(id -u)}" -eq 0 ]; then
-            echo "Installing lm-sensors via apt-get..."
-            apt-get update -y && apt-get install -y lm-sensors || true
-        elif sudo -n true 2>/dev/null; then
-            echo "Installing lm-sensors via sudo apt-get..."
-            sudo apt-get update -y && sudo apt-get install -y lm-sensors || true
-        else
-            echo "To enable extensive hardware sensor telemetry (voltage, current, temps, fans):"
-            echo "    sudo apt-get update && sudo apt-get install -y lm-sensors"
-        fi
+# Helper to run commands as root or with sudo
+run_as_root() {
+    if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+        "$@"
+    elif command -v sudo &> /dev/null; then
+        sudo "$@"
+    else
+        echo "WARNING: Root privileges required for: $*" >&2
+        return 1
     fi
-else
-    echo "Found lm-sensors: $(sensors --version 2>&1 | head -n1)"
-fi
-echo ""
+}
 
 # ------------------------------------------------------------------------------
-# System Dependencies: Camera & Live Deployment (Picamera2, V4L2, OpenCV support)
+# System Dependencies: Hardware Telemetry, Camera & Live Deployment
 # ------------------------------------------------------------------------------
-echo "--- Checking Live Deployment Camera & Video Dependencies ---"
+echo ""
+echo "--- Checking System Hardware Telemetry, Camera & Video Dependencies ---"
+
 IS_RPI=false
 if [ -f "/proc/device-tree/model" ] && grep -qi "raspberry" /proc/device-tree/model 2>/dev/null; then
     IS_RPI=true
@@ -46,42 +36,51 @@ fi
 
 if command -v apt-get &> /dev/null; then
     DEPS_TO_INSTALL=()
-    
-    # 1. Raspberry Pi CSI Camera Module (Picamera2)
-    if [ "${IS_RPI}" = true ]; then
-        if ! dpkg -s python3-picamera2 &> /dev/null; then
-            DEPS_TO_INSTALL+=("python3-picamera2" "libcamera-tools")
+
+    # 1. Hardware sensors telemetry (lm-sensors)
+    if ! command -v sensors &> /dev/null; then
+        DEPS_TO_INSTALL+=("lm-sensors")
+    else
+        echo "Found lm-sensors: $(sensors --version 2>&1 | head -n1)"
+    fi
+
+    # 2. Raspberry Pi CSI Camera Module (python3-picamera2)
+    # Check if python3-picamera2 package is available in apt repositories or on Raspberry Pi
+    if [ "${IS_RPI}" = true ] || apt-cache show python3-picamera2 &>/dev/null 2>&1; then
+        if ! dpkg -s python3-picamera2 &> /dev/null 2>&1; then
+            DEPS_TO_INSTALL+=("python3-picamera2")
         else
             echo "Found Raspberry Pi CSI camera support: python3-picamera2"
         fi
+
+        for cam_tool in libcamera-tools libcamera-apps; do
+            if apt-cache show "${cam_tool}" &>/dev/null 2>&1 && ! dpkg -s "${cam_tool}" &>/dev/null 2>&1; then
+                DEPS_TO_INSTALL+=("${cam_tool}")
+            fi
+        done
     fi
 
-    # 2. V4L2 webcam utilities
+    # 3. V4L2 USB camera utilities
     if ! command -v v4l2-ctl &> /dev/null; then
         DEPS_TO_INSTALL+=("v4l-utils")
     else
         echo "Found V4L2 camera tools: v4l2-ctl"
     fi
 
-    # 3. OpenCV display / graphics prerequisites
+    # 4. OpenCV display / graphics prerequisites
     for libpkg in libgl1 libglib2.0-0; do
-        if ! dpkg -s "${libpkg}" &> /dev/null; then
+        if ! dpkg -s "${libpkg}" &> /dev/null 2>&1; then
             DEPS_TO_INSTALL+=("${libpkg}")
         fi
     done
 
     if [ ${#DEPS_TO_INSTALL[@]} -gt 0 ]; then
-        echo "Installing live deployment packages via apt-get: ${DEPS_TO_INSTALL[*]}..."
-        if [ "${EUID:-$(id -u)}" -eq 0 ]; then
-            apt-get update -y && apt-get install -y "${DEPS_TO_INSTALL[@]}" || true
-        elif sudo -n true 2>/dev/null; then
-            sudo apt-get update -y && sudo apt-get install -y "${DEPS_TO_INSTALL[@]}" || true
-        else
-            echo "NOTICE: To enable camera hardware acceleration and Picamera2 support, run:"
-            echo "    sudo apt-get update && sudo apt-get install -y ${DEPS_TO_INSTALL[*]}"
-        fi
+        echo "Installing required system packages via apt-get: ${DEPS_TO_INSTALL[*]}..."
+        run_as_root apt-get update -y && run_as_root apt-get install -y "${DEPS_TO_INSTALL[@]}" || {
+            echo "NOTICE: Some apt packages could not be installed automatically. Ensure permissions allow apt-get."
+        }
     else
-        echo "All system camera and live deployment prerequisites are installed."
+        echo "All system hardware telemetry, camera, and live deployment prerequisites are installed."
     fi
 fi
 echo ""
@@ -115,9 +114,24 @@ if [ ! -d "${VENV_DIR}" ] && [ -d "${REPO_ROOT}/venv" ]; then
     VENV_DIR="${REPO_ROOT}/venv"
     echo "Using existing virtual environment at ${VENV_DIR}..."
 elif [ ! -d "${VENV_DIR}" ]; then
-    echo "Creating virtual environment at ${VENV_DIR} using ${PYTHON_BIN}..."
-    "${PYTHON_BIN}" -m venv "${VENV_DIR}"
+    echo "Creating virtual environment at ${VENV_DIR} using ${PYTHON_BIN} with system site packages enabled..."
+    "${PYTHON_BIN}" -m venv --system-site-packages "${VENV_DIR}"
 fi
+
+# Ensure virtualenv config enables access to system site packages (enables Picamera2 from apt)
+if [ -f "${VENV_DIR}/pyvenv.cfg" ]; then
+    if grep -q "include-system-site-packages = false" "${VENV_DIR}/pyvenv.cfg"; then
+        echo "Enabling system-site-packages in ${VENV_DIR}/pyvenv.cfg for Picamera2 access..."
+        sed -i 's/include-system-site-packages = false/include-system-site-packages = true/' "${VENV_DIR}/pyvenv.cfg"
+    fi
+fi
+
+# Ensure system dist-packages is linked in site-packages
+for sp_dir in "${VENV_DIR}"/lib/python*/site-packages; do
+    if [ -d "${sp_dir}" ]; then
+        echo "/usr/lib/python3/dist-packages" > "${sp_dir}/_system_dist_packages.pth"
+    fi
+done
 
 echo "Activating virtual environment (${VENV_DIR})..."
 # shellcheck disable=SC1091

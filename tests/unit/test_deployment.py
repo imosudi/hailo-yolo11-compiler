@@ -196,3 +196,26 @@ def test_create_frame_source_factory(tmp_path: Path) -> None:
     # Invalid path
     with pytest.raises(DeploymentError):
         create_frame_source(tmp_path / "non_existent_file.xyz")
+
+
+def test_picamera2_fallback_to_opencv() -> None:
+    """Verify that Picamera2Source seamlessly falls back to OpenCV when picam2 is missing."""
+    with patch("yolo_hailo_mlops.deployment.sources.try_import_picamera2", return_value=None):
+        with patch("yolo_hailo_mlops.deployment.sources.cv2.VideoCapture") as mock_cap:
+            mock_inst = MagicMock()
+            mock_inst.isOpened.return_value = True
+            mock_inst.read.return_value = (True, np.zeros((480, 640, 3), dtype=np.uint8))
+            mock_inst.get.return_value = 30.0
+            mock_cap.return_value = mock_inst
+
+            from yolo_hailo_mlops.deployment.sources import Picamera2Source
+            source = Picamera2Source(camera_num=0, fallback_to_opencv=True)
+            assert source.source_type == "camera"
+            packet = source.read_frame()
+            assert packet is not None
+            source.release()
+
+        # Strict mode without fallback raises DeploymentError
+        with pytest.raises(DeploymentError) as exc_info:
+            Picamera2Source(camera_num=0, fallback_to_opencv=False)
+        assert exc_info.value.code == "E-DEPLOY-PICAM-001"
