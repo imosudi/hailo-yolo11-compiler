@@ -223,9 +223,21 @@ class HailoInferenceEngine(BaseInferenceEngine):
             # 1. Initialize VDevice
             params = self._hailo.VDevice.create_params()
             self._target = self._hailo.VDevice(params)
+            if hasattr(self._target, "__enter__"):
+                self._target.__enter__()
 
             # 2. Load HEF
             self.hef = self._hailo.HEF(str(self.hef_path))
+
+            # Retrieve stream metadata from HEF
+            input_infos = []
+            output_infos = []
+            if hasattr(self.hef, "get_input_vstream_infos"):
+                try:
+                    input_infos = self.hef.get_input_vstream_infos()
+                    output_infos = self.hef.get_output_vstream_infos()
+                except Exception:
+                    pass
 
             # 3. Configure PCIe Stream Interface
             configure_params = self._hailo.ConfigureParams.create_from_hef(
@@ -235,13 +247,35 @@ class HailoInferenceEngine(BaseInferenceEngine):
             self._network_group = network_groups[0]
             network_group_params = self._network_group.create_params()
 
+            # Fallback to network_group if HEF did not provide stream infos
+            if not input_infos and hasattr(self._network_group, "get_input_vstream_infos"):
+                try:
+                    input_infos = self._network_group.get_input_vstream_infos()
+                    output_infos = self._network_group.get_output_vstream_infos()
+                except Exception:
+                    pass
+
+            self._input_name = input_infos[0].name if input_infos else "input"
+            self._output_names = [info.name for info in output_infos]
+
             # 4. Configure Virtual Streams
-            input_vstreams_params = self._hailo.InputVStreamParams.make(
-                self._network_group, quantized=False, format_type=self._hailo.FormatType.UINT8
-            )
-            output_vstreams_params = self._hailo.OutputVStreamParams.make(
-                self._network_group, quantized=False, format_type=self._hailo.FormatType.FLOAT32
-            )
+            if hasattr(self._hailo.InputVStreamParams, "make"):
+                input_vstreams_params = self._hailo.InputVStreamParams.make(
+                    self._network_group, quantized=False, format_type=self._hailo.FormatType.UINT8
+                )
+                output_vstreams_params = self._hailo.OutputVStreamParams.make(
+                    self._network_group, quantized=False, format_type=self._hailo.FormatType.FLOAT32
+                )
+            elif hasattr(self._hailo.InputVStreamParams, "make_from_network_group"):
+                input_vstreams_params = self._hailo.InputVStreamParams.make_from_network_group(
+                    self._network_group, quantized=False, format_type=self._hailo.FormatType.UINT8
+                )
+                output_vstreams_params = self._hailo.OutputVStreamParams.make_from_network_group(
+                    self._network_group, quantized=False, format_type=self._hailo.FormatType.FLOAT32
+                )
+            else:
+                input_vstreams_params = self._hailo.InputVStreamParams(self._network_group)
+                output_vstreams_params = self._hailo.OutputVStreamParams(self._network_group)
 
             # 5. Activate network and instantiate InferVStreams for low-latency streaming
             self._activated_network = self._network_group.activate(network_group_params)
@@ -251,9 +285,6 @@ class HailoInferenceEngine(BaseInferenceEngine):
                 self._network_group, input_vstreams_params, output_vstreams_params
             )
             self._infer_pipeline.__enter__()
-
-            self._input_name = self._infer_pipeline.get_input_vstream_infos()[0].name
-            self._output_names = [info.name for info in self._infer_pipeline.get_output_vstream_infos()]
 
         except Exception as e:
             self.close()
@@ -308,7 +339,10 @@ class HailoInferenceEngine(BaseInferenceEngine):
 
         if self._target is not None:
             try:
-                self._target.release()
+                if hasattr(self._target, "__exit__"):
+                    self._target.__exit__(None, None, None)
+                elif hasattr(self._target, "release"):
+                    self._target.release()
             except Exception:
                 pass
             self._target = None

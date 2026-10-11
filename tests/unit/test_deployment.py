@@ -402,6 +402,49 @@ def test_hailo_engine_missing_platform_diagnostic(tmp_path: Path) -> None:
             assert "Run /usr/bin/python3" in exc_info.value.remediation
 
 
+def test_hailo_engine_successful_initialization_with_hef_stream_infos(tmp_path: Path) -> None:
+    """Verify HailoInferenceEngine initializes cleanly when stream infos are on HEF."""
+    from yolo_hailo_mlops.deployment.inference import HailoInferenceEngine
+
+    dummy_hef = tmp_path / "model.hef"
+    dummy_hef.touch()
+
+    mock_env = MagicMock()
+    mock_env.has_hardware = True
+
+    mock_hailo = MagicMock()
+    mock_hef_instance = MagicMock()
+    in_info = MagicMock()
+    in_info.name = "input_layer"
+    out_info = MagicMock()
+    out_info.name = "output_layer"
+    mock_hef_instance.get_input_vstream_infos.return_value = [in_info]
+    mock_hef_instance.get_output_vstream_infos.return_value = [out_info]
+    mock_hailo.HEF.return_value = mock_hef_instance
+
+    mock_vdev = MagicMock()
+    mock_hailo.VDevice.return_value = mock_vdev
+
+    mock_infer_pipeline = MagicMock()
+    mock_infer_pipeline.infer.return_value = {"output_layer": np.zeros((1, 84, 8400), dtype=np.float32)}
+    mock_hailo.InferVStreams.return_value = mock_infer_pipeline
+
+    with patch("yolo_hailo_mlops.deployment.inference.detect_hailo_environment", return_value=mock_env):
+        with patch("yolo_hailo_mlops.deployment.inference.try_import_hailo_platform", return_value=(mock_hailo, None, None)):
+            engine = HailoInferenceEngine(dummy_hef)
+            assert engine._input_name == "input_layer"
+            assert engine._output_names == ["output_layer"]
+
+            # Test infer
+            dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
+            outputs, latency = engine.infer(dummy_img)
+            assert "output_layer" in outputs
+            assert latency >= 0
+
+            engine.close()
+
+
+
 
 
 
