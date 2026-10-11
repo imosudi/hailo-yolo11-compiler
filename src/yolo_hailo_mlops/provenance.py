@@ -91,8 +91,41 @@ def get_installed_packages() -> Dict[str, str]:
     return dict(sorted(packages.items()))
 
 
+def ensure_system_dist_packages() -> None:
+    """Ensure Debian/Raspberry Pi OS system dist-packages is linked and in sys.path."""
+    for dist_dir in ["/usr/lib/python3/dist-packages", "/usr/local/lib/python3/dist-packages"]:
+        if os.path.isdir(dist_dir) and dist_dir not in sys.path:
+            sys.path.append(dist_dir)
+
+    if sys.prefix != sys.base_prefix:
+        try:
+            site_pkgs = Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+            if site_pkgs.is_dir():
+                pth_file = site_pkgs / "_system_dist_packages.pth"
+                if not pth_file.exists():
+                    pth_file.write_text("/usr/lib/python3/dist-packages\n/usr/local/lib/python3/dist-packages\n", encoding="utf-8")
+        except Exception:
+            pass
+
+        try:
+            cfg_path = Path(sys.prefix) / "pyvenv.cfg"
+            if cfg_path.is_file():
+                txt = cfg_path.read_text(encoding="utf-8")
+                if "include-system-site-packages = false" in txt:
+                    cfg_path.write_text(
+                        txt.replace("include-system-site-packages = false", "include-system-site-packages = true"),
+                        encoding="utf-8",
+                    )
+        except Exception:
+            pass
+
+
+ensure_system_dist_packages()
+
+
 def get_dependency_versions() -> Dict[str, Any]:
     """Inspect core ML and edge AI dependencies explicitly."""
+    ensure_system_dist_packages()
     packages = get_installed_packages()
 
     def get_pkg_info(pkg_name: str) -> Dict[str, Any]:

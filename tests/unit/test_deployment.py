@@ -219,3 +219,48 @@ def test_picamera2_fallback_to_opencv() -> None:
         with pytest.raises(DeploymentError) as exc_info:
             Picamera2Source(camera_num=0, fallback_to_opencv=False)
         assert exc_info.value.code == "E-DEPLOY-PICAM-001"
+
+
+def test_opencv_camera_probing_when_index_0_empty() -> None:
+    """Verify that OpenCVCameraSource automatically discovers an active camera node if /dev/video0 is empty."""
+    from yolo_hailo_mlops.deployment.sources import OpenCVCameraSource
+
+    # Mock device 0 failing to read frames (PiSP memory node), device 2 succeeding
+    def mock_video_capture(idx, *args, **kwargs):
+        inst = MagicMock()
+        inst.isOpened.return_value = True
+        if idx == 0:
+            inst.read.return_value = (False, None)
+        elif idx == 2:
+            inst.read.return_value = (True, np.ones((480, 640, 3), dtype=np.uint8))
+        else:
+            inst.isOpened.return_value = False
+        inst.get.return_value = 30.0
+        return inst
+
+    with patch("yolo_hailo_mlops.deployment.sources.cv2.VideoCapture", side_effect=mock_video_capture):
+        with patch("glob.glob", return_value=["/dev/video0", "/dev/video1", "/dev/video2"]):
+            source = OpenCVCameraSource(device_index=0)
+            assert source.device_index == 2
+            packet = source.read_frame()
+            assert packet is not None
+            assert packet.source_name == "camera_2"
+            source.release()
+
+
+def test_opencv_camera_all_fail_raises_error() -> None:
+    """Verify that OpenCVCameraSource raises E-DEPLOY-CAM-002 if all video devices fail to capture."""
+    from yolo_hailo_mlops.deployment.sources import OpenCVCameraSource
+
+    def mock_video_capture(idx, *args, **kwargs):
+        inst = MagicMock()
+        inst.isOpened.return_value = True
+        inst.read.return_value = (False, None)
+        return inst
+
+    with patch("yolo_hailo_mlops.deployment.sources.cv2.VideoCapture", side_effect=mock_video_capture):
+        with patch("glob.glob", return_value=["/dev/video0"]):
+            with pytest.raises(DeploymentError) as exc_info:
+                OpenCVCameraSource(device_index=0)
+            assert exc_info.value.code == "E-DEPLOY-CAM-002"
+

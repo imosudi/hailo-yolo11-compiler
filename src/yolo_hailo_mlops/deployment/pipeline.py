@@ -25,6 +25,32 @@ from yolo_hailo_mlops.exceptions import DeploymentError
 from yolo_hailo_mlops.utils.filesystem import ensure_dir
 
 
+def is_gui_display_available() -> bool:
+    """Check whether a graphical display server (Wayland or X11) is actively connected and reachable."""
+    wayland_display = os.environ.get("WAYLAND_DISPLAY")
+    xdg_runtime = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}" if hasattr(os, "getuid") else None)
+    if wayland_display and xdg_runtime:
+        wayland_sock = Path(xdg_runtime) / wayland_display
+        if wayland_sock.exists():
+            return True
+
+    x11_display = os.environ.get("DISPLAY")
+    if x11_display:
+        disp_num = x11_display.lstrip(":").split(".")[0]
+        if disp_num.isdigit():
+            x_sock = Path(f"/tmp/.X11-unix/X{disp_num}")
+            if x_sock.exists():
+                return True
+        return True
+
+    return False
+
+
+# OpenCV Qt backend lacks libqwayland.so on PyPI wheels; defaulting to xcb allows XWayland interoperability without crashing
+if "QT_QPA_PLATFORM" not in os.environ and (os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY")):
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
+
+
 class LiveDeploymentPipeline:
     """Manages end-to-end ingestion, inference, postprocessing, annotation, and display/sink."""
 
@@ -62,8 +88,10 @@ class LiveDeploymentPipeline:
         self.hud_enabled = hud_enabled
 
         # Auto-detect display availability if not explicitly specified
-        has_display = bool(os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"))
-        self.show = has_display if show is None else show
+        if show is None:
+            self.show = is_gui_display_available()
+        else:
+            self.show = show
 
         # Initialize core components
         self.source: BaseFrameSource = create_frame_source(
@@ -217,33 +245,37 @@ class LiveDeploymentPipeline:
 
                 # 7. Sinks: Live GUI Display
                 if self.show:
-                    cv2.imshow(window_name, annotated)
+                    try:
+                        cv2.imshow(window_name, annotated)
 
-                    # Dynamic delay for video playback or camera
-                    delay = 1
-                    if self.fps_limit and self.fps_limit > 0:
-                        target_delay = (1.0 / self.fps_limit) - (time.perf_counter() - t_frame_start)
-                        if target_delay > 0:
-                            delay = int(target_delay * 1000)
+                        # Dynamic delay for video playback or camera
+                        delay = 1
+                        if self.fps_limit and self.fps_limit > 0:
+                            target_delay = (1.0 / self.fps_limit) - (time.perf_counter() - t_frame_start)
+                            if target_delay > 0:
+                                delay = int(target_delay * 1000)
 
-                    key = cv2.waitKey(max(1, delay)) & 0xFF
-                    if key in (ord("q"), 27):  # 'q' or ESC
-                        print("\n[INFO] User requested termination (Exit key pressed).")
-                        break
-                    elif key == ord("p"):  # 'p' toggle pause
-                        paused = not paused
-                        while paused:
-                            k = cv2.waitKey(100) & 0xFF
-                            if k == ord("p"):
-                                paused = False
-                            elif k in (ord("q"), 27):
-                                break
-                    elif key == ord("s"):  # 's' snapshot
-                        snap_dir = self.save_dir or Path("./artifacts/snapshots")
-                        ensure_dir(snap_dir)
-                        snap_p = snap_dir / f"snapshot_{time.strftime('%Y%m%d_%H%M%S')}.jpg"
-                        cv2.imwrite(str(snap_p), annotated)
-                        print(f"  [SNAPSHOT SAVED] {snap_p}")
+                        key = cv2.waitKey(max(1, delay)) & 0xFF
+                        if key in (ord("q"), 27):  # 'q' or ESC
+                            print("\n[INFO] User requested termination (Exit key pressed).")
+                            break
+                        elif key == ord("p"):  # 'p' toggle pause
+                            paused = not paused
+                            while paused:
+                                k = cv2.waitKey(100) & 0xFF
+                                if k == ord("p"):
+                                    paused = False
+                                elif k in (ord("q"), 27):
+                                    break
+                        elif key == ord("s"):  # 's' snapshot
+                            snap_dir = self.save_dir or Path("./artifacts/snapshots")
+                            ensure_dir(snap_dir)
+                            snap_p = snap_dir / f"snapshot_{time.strftime('%Y%m%d_%H%M%S')}.jpg"
+                            cv2.imwrite(str(snap_p), annotated)
+                            print(f"  [SNAPSHOT SAVED] {snap_p}")
+                    except Exception as e:
+                        print(f"\n[WARNING] Live GUI display error ({e}). Seamlessly switching to headless mode.")
+                        self.show = False
 
                 # Terminal log update if running headless or periodically
                 if not self.show or total_frames % 60 == 0:

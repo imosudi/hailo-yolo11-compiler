@@ -301,10 +301,13 @@ def create_inference_engine(
         candidates = [
             root / "latest" / "hailo" / "model.hef",
             root / "hailo" / "model.hef",
+            root / "runs" / "latest" / "hailo" / "model.hef",
             root / "latest" / "onnx" / "model.onnx",
             root / "onnx" / "model.onnx",
+            root / "runs" / "latest" / "onnx" / "model.onnx",
             root / "latest" / "pytorch" / "best.pt",
             root / "pytorch" / "best.pt",
+            root / "runs" / "latest" / "pytorch" / "best.pt",
             Path("yolo11n.pt"),
         ]
         resolved_path = None
@@ -312,6 +315,17 @@ def create_inference_engine(
             if cand.is_file():
                 resolved_path = cand
                 break
+
+        # Fallback: find most recent compiled HEF or ONNX within runs directory
+        if not resolved_path and root.is_dir():
+            hef_runs = sorted(root.glob("runs/**/hailo/*.hef"), key=lambda p: p.stat().st_mtime, reverse=True)
+            if hef_runs:
+                resolved_path = hef_runs[0]
+            else:
+                onnx_runs = sorted(root.glob("runs/**/onnx/*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if onnx_runs:
+                    resolved_path = onnx_runs[0]
+
         if not resolved_path:
             raise DeploymentError(
                 "No trained or compiled model artifact found. Specify '--model <path>' explicitly.",

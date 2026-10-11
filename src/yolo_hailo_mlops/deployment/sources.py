@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import os
+import shutil
+import subprocess
+import sys
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -96,6 +99,7 @@ class OpenCVCameraSource(BaseFrameSource):
         self._target_fps = target_fps
         self._target_res = target_resolution
         self._frame_count = 0
+        self._cached_first_frame: Optional[np.ndarray] = None
 
         # Attempt V4L2 backend first on Linux
         self.cap = cv2.VideoCapture(self.device_index, cv2.CAP_V4L2)
@@ -103,28 +107,78 @@ class OpenCVCameraSource(BaseFrameSource):
             # Fallback to default backend
             self.cap = cv2.VideoCapture(self.device_index)
 
-        if not self.cap.isOpened():
-            raise DeploymentError(
-                f"Failed to open camera device: {self.device_index}",
-                code="E-DEPLOY-CAM-001",
-                remediation="Ensure camera is connected and permissions allow access to /dev/video* (e.g. user in 'video' group).",
-            )
-
         # Minimize buffer size to eliminate latency on live streams
         try:
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if self.cap.isOpened():
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
         except Exception:
             pass
 
-        if self._target_res:
+        if self._target_res and self.cap.isOpened():
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self._target_res[0])
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self._target_res[1])
 
-        if self._target_fps:
+        if self._target_fps and self.cap.isOpened():
             self.cap.set(cv2.CAP_PROP_FPS, self._target_fps)
 
-        self._width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
-        self._height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
+        # Verify whether this camera device can actually capture frames
+        can_capture = False
+        if self.cap.isOpened():
+            ret, test_frame = self.cap.read()
+            if ret and test_frame is not None:
+                can_capture = True
+                self._cached_first_frame = test_frame
+                self._width = int(test_frame.shape[1])
+                self._height = int(test_frame.shape[0])
+
+        # If chosen device cannot stream (e.g. Raspberry Pi 5 ISP node /dev/video0)
+        # and default index 0 was requested, scan for an active camera device
+        if not can_capture and self.device_index == 0:
+            import glob
+            dev_paths = sorted(
+                glob.glob("/dev/video*"),
+                key=lambda p: int(p.replace("/dev/video", "")) if p.replace("/dev/video", "").isdigit() else 999,
+            )
+            for cand_path in dev_paths:
+                cand_idx = int(cand_path.replace("/dev/video", "")) if cand_path.replace("/dev/video", "").isdigit() else None
+                if cand_idx is None or cand_idx == 0:
+                    continue
+                test_cap = cv2.VideoCapture(cand_idx, cv2.CAP_V4L2)
+                if not test_cap.isOpened():
+                    test_cap = cv2.VideoCapture(cand_idx)
+                if test_cap.isOpened():
+                    try:
+                        test_cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                    except Exception:
+                        pass
+                    r, f = test_cap.read()
+                    if r and f is not None:
+                        if self.cap.isOpened():
+                            self.cap.release()
+                        self.cap = test_cap
+                        self.device_index = cand_idx
+                        self._cached_first_frame = f
+                        self._width = int(f.shape[1])
+                        self._height = int(f.shape[0])
+                        can_capture = True
+                        print(f"[INFO] Auto-detected functional camera capture stream on /dev/video{cand_idx} (index 0 was non-streaming node).")
+                        break
+                    test_cap.release()
+
+        if not can_capture:
+            if self.cap.isOpened():
+                self.cap.release()
+            raise DeploymentError(
+                f"Camera device '{self.device_index}' could not capture frames (read returned empty). "
+                "On Raspberry Pi 5, CSI camera modules require Picamera2 ('sudo apt install -y python3-picamera2'), "
+                "while USB webcams may require specifying an active capture node (e.g. '--source 20').",
+                code="E-DEPLOY-CAM-002",
+                remediation="For Raspberry Pi CSI cameras, install python3-picamera2 ('./scripts/bootstrap.sh'). For USB webcams, pass '--source <index>' (e.g. --source 20).",
+            )
+
+        if not hasattr(self, "_width"):
+            self._width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 640
+            self._height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 480
         self._fps = float(self.cap.get(cv2.CAP_PROP_FPS)) or 30.0
 
     @property
@@ -146,9 +200,22 @@ class OpenCVCameraSource(BaseFrameSource):
     def read_frame(self) -> Optional[FramePacket]:
         if not self.cap or not self.cap.isOpened():
             return None
-        ret, frame = self.cap.read()
-        if not ret or frame is None:
-            return None
+
+        if self._cached_first_frame is not None:
+            frame = self._cached_first_frame
+            self._cached_first_frame = None
+        else:
+            ret, frame = self.cap.read()
+            if not ret or frame is None:
+                # Brief retry to handle momentary frame drop on USB/V4L2
+                for _ in range(3):
+                    time.sleep(0.005)
+                    ret, frame = self.cap.read()
+                    if ret and frame is not None:
+                        break
+                if not ret or frame is None:
+                    return None
+
         self._frame_count += 1
         return FramePacket(
             frame_id=self._frame_count,
@@ -164,8 +231,36 @@ class OpenCVCameraSource(BaseFrameSource):
             self.cap = None
 
 
+def try_auto_install_picamera2() -> bool:
+    """Attempt non-interactive apt installation of python3-picamera2 on Raspberry Pi OS."""
+    if not sys.platform.startswith("linux") or not shutil.which("apt-get"):
+        return False
+    try:
+        # Check sudo non-interactive access
+        res = subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=2)
+        if res.returncode == 0:
+            print("[INFO] Attempting automated installation of python3-picamera2 via apt...")
+            install_res = subprocess.run(
+                ["sudo", "-n", "apt-get", "install", "-y", "--no-install-recommends", "python3-picamera2", "libcamera-tools", "v4l-utils"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if install_res.returncode == 0:
+                print("[SUCCESS] python3-picamera2 installed successfully.")
+                from yolo_hailo_mlops.provenance import ensure_system_dist_packages
+                ensure_system_dist_packages()
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def try_import_picamera2() -> Optional[Any]:
     """Attempt to import Picamera2 from current environment or system dist-packages."""
+    from yolo_hailo_mlops.provenance import ensure_system_dist_packages
+    ensure_system_dist_packages()
+
     try:
         from picam2 import Picamera2  # type: ignore
         return Picamera2
@@ -178,21 +273,18 @@ def try_import_picamera2() -> Optional[Any]:
     except (ImportError, ModuleNotFoundError):
         pass
 
-    # Check system dist-packages (common when installed via 'sudo apt install python3-picamera2' on Raspberry Pi)
-    import sys
-    for dist_dir in ["/usr/lib/python3/dist-packages", "/usr/local/lib/python3/dist-packages"]:
-        if os.path.exists(dist_dir) and dist_dir not in sys.path:
-            sys.path.append(dist_dir)
-            try:
-                from picam2 import Picamera2  # type: ignore
-                return Picamera2
-            except (ImportError, ModuleNotFoundError):
-                pass
-            try:
-                from picamera2 import Picamera2  # type: ignore
-                return Picamera2
-            except (ImportError, ModuleNotFoundError):
-                pass
+    # If not found, attempt on-the-fly auto-installation via apt (if passwordless sudo is available)
+    if try_auto_install_picamera2():
+        try:
+            from picam2 import Picamera2  # type: ignore
+            return Picamera2
+        except (ImportError, ModuleNotFoundError):
+            pass
+        try:
+            from picamera2 import Picamera2  # type: ignore
+            return Picamera2
+        except (ImportError, ModuleNotFoundError):
+            pass
 
     return None
 
@@ -219,15 +311,22 @@ class Picamera2Source(BaseFrameSource):
         if picam2_cls is None:
             if fallback_to_opencv:
                 print(
-                    f"[NOTICE] Picamera2 is not installed. Seamlessly utilizing OpenCV camera (/dev/video{camera_num}) instead of failing.\n"
+                    f"[NOTICE] Picamera2 is not installed. Attempting fallback to OpenCV camera (/dev/video{camera_num})...\n"
                     "         (To enable native Raspberry Pi CSI Camera Module, run './scripts/bootstrap.sh' or 'sudo apt install -y python3-picamera2')"
                 )
-                self._fallback_opencv = OpenCVCameraSource(
-                    device_index=camera_num,
-                    target_fps=target_fps,
-                    target_resolution=target_resolution,
-                )
-                return
+                try:
+                    self._fallback_opencv = OpenCVCameraSource(
+                        device_index=camera_num,
+                        target_fps=target_fps,
+                        target_resolution=target_resolution,
+                    )
+                    return
+                except DeploymentError as e:
+                    raise DeploymentError(
+                        f"Picamera2 is not installed, and fallback OpenCV camera failed: {e.message}",
+                        code="E-DEPLOY-PICAM-001",
+                        remediation="Run './scripts/bootstrap.sh' or 'sudo apt-get install -y python3-picamera2', or connect a functional USB camera.",
+                    ) from e
 
             raise DeploymentError(
                 "Picamera2 is not installed. Install with 'sudo apt install -y python3-picamera2' or use OpenCV camera.",
@@ -245,7 +344,7 @@ class Picamera2Source(BaseFrameSource):
         except Exception as e:
             if fallback_to_opencv:
                 print(
-                    f"[NOTICE] Picamera2 hardware device failed ({e}). Seamlessly utilizing OpenCV camera (/dev/video{camera_num})."
+                    f"[NOTICE] Picamera2 hardware device failed ({e}). Attempting fallback to OpenCV camera (/dev/video{camera_num})."
                 )
                 try:
                     self._fallback_opencv = OpenCVCameraSource(

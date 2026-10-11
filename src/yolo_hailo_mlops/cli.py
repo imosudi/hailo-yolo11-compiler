@@ -20,9 +20,11 @@ from yolo_hailo_mlops.exceptions import ConfigurationError, YoloHailoError
 from yolo_hailo_mlops.hailo.environment import detect_hailo_environment
 from yolo_hailo_mlops.logging import PipelineLogger, get_logger
 from yolo_hailo_mlops.manifest import RunManifest
-from yolo_hailo_mlops.provenance import get_dependency_versions, get_environment_info
+from yolo_hailo_mlops.provenance import ensure_system_dist_packages, get_dependency_versions, get_environment_info
 from yolo_hailo_mlops.state import ExecutionMode, PhaseName, PhaseState, PipelineStatus, StateMachine
 from yolo_hailo_mlops.utils.filesystem import atomic_write, ensure_dir, safe_symlink_or_copy
+
+ensure_system_dist_packages()
 
 
 def generate_run_id() -> str:
@@ -657,7 +659,7 @@ class PipelineRunner:
 
         pipeline = LiveDeploymentPipeline(
             source=self.config.deployment.source,
-            model_path=self.config.deployment.model_path or self.config.model.source,
+            model_path=self.config.deployment.model_path,
             backend=self.config.deployment.backend,
             conf_threshold=self.config.deployment.conf_threshold,
             iou_threshold=self.config.deployment.iou_threshold,
