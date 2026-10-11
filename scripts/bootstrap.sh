@@ -10,6 +10,30 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 echo "=== hailo-yolo11-compiler: Environment Bootstrapper ==="
 echo "Repository Root: ${REPO_ROOT}"
 
+# ------------------------------------------------------------------------------
+# System Dependencies: Hardware Telemetry Tools (lm-sensors)
+# ------------------------------------------------------------------------------
+echo ""
+echo "--- Checking System Hardware Telemetry Tools (lm-sensors) ---"
+if ! command -v sensors &> /dev/null; then
+    echo "NOTICE: 'sensors' (lm-sensors) is not installed."
+    if command -v apt-get &> /dev/null; then
+        if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+            echo "Installing lm-sensors via apt-get..."
+            apt-get update -y && apt-get install -y lm-sensors || true
+        elif sudo -n true 2>/dev/null; then
+            echo "Installing lm-sensors via sudo apt-get..."
+            sudo apt-get update -y && sudo apt-get install -y lm-sensors || true
+        else
+            echo "To enable extensive hardware sensor telemetry (voltage, current, temps, fans):"
+            echo "    sudo apt-get update && sudo apt-get install -y lm-sensors"
+        fi
+    fi
+else
+    echo "Found lm-sensors: $(sensors --version 2>&1 | head -n1)"
+fi
+echo ""
+
 # Detect Python interpreter (Prioritize Python 3.10 for Hailo DFC compatibility)
 PYTHON_BIN=""
 for candidate in python3.10 python3.11 python3.12 python3; do

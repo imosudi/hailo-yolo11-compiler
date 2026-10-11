@@ -7,6 +7,7 @@ import datetime
 import hashlib
 import json
 import os
+import shutil
 import signal
 import sys
 import time
@@ -112,6 +113,31 @@ class PipelineRunner:
 
         hw_st = "PASS" if hailo_env.has_hardware else "NOT AVAILABLE"
         print(f"  Hailo-8L Hardware:  [{hw_st:<13}] {hailo_env.device_name or 'Not connected (Raspberry Pi 5 AI HAT+)'}")
+
+        # System Hardware Telemetry & Sensor diagnostics
+        print(f"\n[SYSTEM HARDWARE TELEMETRY & SENSORS]")
+        sensors_bin = shutil.which("sensors")
+        sensors_st = "PASS" if sensors_bin else "NOT AVAILABLE"
+        sensors_desc = "Installed (lm-sensors)" if sensors_bin else "Missing (run 'sudo apt-get install -y lm-sensors')"
+        print(f"  lm-sensors:         [{sensors_st:<13}] {sensors_desc}")
+
+        vcgen_bin = shutil.which("vcgencmd")
+        is_rpi = (
+            Path("/proc/device-tree/model").is_file()
+            and "raspberry" in Path("/proc/device-tree/model").read_text(errors="ignore").lower()
+        )
+        if is_rpi:
+            vcgen_st = "PASS" if vcgen_bin else "NOT AVAILABLE"
+            vcgen_desc = "Available" if vcgen_bin else "Missing (run 'sudo apt-get install -y libraspberrypi-bin')"
+            print(f"  vcgencmd (RPi):     [{vcgen_st:<13}] {vcgen_desc}")
+
+        tz_count = len(list(Path("/sys/class/thermal").glob("thermal_zone*")))
+        tz_st = "PASS" if tz_count > 0 else "NOT AVAILABLE"
+        print(f"  Linux Thermal Zones:[{tz_st:<13}] {tz_count} zone(s) detected")
+
+        hw_count = len(list(Path("/sys/class/hwmon").glob("hwmon*")))
+        hw_st = "PASS" if hw_count > 0 else "NOT AVAILABLE"
+        print(f"  Linux Hwmon Chips:  [{hw_st:<13}] {hw_count} chip(s) detected")
 
         # Dataset & Model check
         print(f"\n[PROJECT CONFIGURATION]")

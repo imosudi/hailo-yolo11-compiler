@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import importlib.metadata
+import json
 import os
 import platform
 import re
@@ -214,6 +215,111 @@ def read_hailo_power_watts() -> Tuple[Optional[float], str, str, Optional[str]]:
         except Exception:
             pass
     return None, "UNAVAILABLE", "hailortcli", "Hailo hardware interface does not support onboard power measurement (INA sensor not present on Raspberry Pi AI HAT+)"
+
+
+def read_lm_sensors_telemetry(
+    run_id: Optional[str] = None,
+    backend: str = "cpu",
+    phase: str = "performance_validation",
+    device: Optional[str] = None,
+) -> List[TelemetryRecord]:
+    """Parse structured JSON from lm-sensors 'sensors -j' if installed."""
+    records: List[TelemetryRecord] = []
+    sensors_bin = which("sensors")
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    dev_name = device or f"{platform.system()} {platform.machine()}"
+
+    if not sensors_bin:
+        records.append(
+            TelemetryRecord(
+                metric="lm_sensors_installed",
+                value=False,
+                unit="boolean",
+                classification="MEASURED",
+                source="which('sensors')",
+                timestamp=now,
+                reason="lm-sensors package not installed (run 'sudo apt-get install -y lm-sensors')",
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+        return records
+
+    records.append(
+        TelemetryRecord(
+            metric="lm_sensors_installed",
+            value=True,
+            unit="boolean",
+            classification="MEASURED",
+            source=sensors_bin,
+            timestamp=now,
+            backend=backend,
+            phase=phase,
+            status="VALID",
+            run_id=run_id,
+            device=dev_name,
+        )
+    )
+
+    try:
+        proc = subprocess.run([sensors_bin, "-j"], capture_output=True, text=True, timeout=3)
+        if proc.returncode == 0:
+            data = json.loads(proc.stdout)
+            for chip, sub in data.items():
+                chip_clean = re.sub(r"[^a-zA-Z0-9_]", "_", chip.split("-")[0].lower())
+                adapter = sub.get("Adapter", "")
+                for feat, sub_f in sub.items():
+                    if not isinstance(sub_f, dict):
+                        continue
+                    feat_clean = re.sub(r"[^a-zA-Z0-9_]", "_", feat.lower()).strip("_")
+                    for k, v in sub_f.items():
+                        if isinstance(v, (int, float)):
+                            if k.endswith("_input"):
+                                base = k.replace("_input", "")
+                                if "temp" in base:
+                                    m_name = f"sensors_{chip_clean}_{feat_clean}_temp"
+                                    u = "°C"
+                                    val = round(float(v), 2)
+                                elif "fan" in base:
+                                    m_name = f"sensors_{chip_clean}_{feat_clean}_rpm"
+                                    u = "RPM"
+                                    val = int(v)
+                                elif "in" in base:
+                                    m_name = f"sensors_{chip_clean}_{feat_clean}_voltage_v"
+                                    u = "V"
+                                    val = round(float(v), 3)
+                                elif "curr" in base:
+                                    m_name = f"sensors_{chip_clean}_{feat_clean}_current_a"
+                                    u = "A"
+                                    val = round(float(v), 3)
+                                elif "power" in base:
+                                    m_name = f"sensors_{chip_clean}_{feat_clean}_power_w"
+                                    u = "W"
+                                    val = round(float(v), 3)
+                                else:
+                                    continue
+                                records.append(
+                                    TelemetryRecord(
+                                        metric=m_name,
+                                        value=val,
+                                        unit=u,
+                                        classification="MEASURED",
+                                        source=f"sensors -j ({chip} / {adapter})",
+                                        timestamp=now,
+                                        backend=backend,
+                                        phase=phase,
+                                        status="VALID",
+                                        run_id=run_id,
+                                        device=dev_name,
+                                    )
+                                )
+    except Exception:
+        pass
+
+    return records
 
 
 def collect_hardware_telemetry(
@@ -735,6 +841,94 @@ def collect_hardware_telemetry(
                 )
             except Exception:
                 pass
+        for vi in sorted(hw.glob("in*_input")):
+            ch = vi.stem.replace("_input", "")
+            try:
+                mv = float(vi.read_text().strip())
+                val = round(mv / 1000.0, 3)
+                records.append(
+                    TelemetryRecord(
+                        metric=f"hwmon_{nm}_{ch}_voltage_v",
+                        value=val,
+                        unit="V",
+                        classification="MEASURED",
+                        source=f"{vi} ({nm})",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+            except Exception:
+                pass
+        for ci in sorted(hw.glob("curr*_input")):
+            ch = ci.stem.replace("_input", "")
+            try:
+                ma = float(ci.read_text().strip())
+                val = round(ma / 1000.0, 3)
+                records.append(
+                    TelemetryRecord(
+                        metric=f"hwmon_{nm}_{ch}_current_a",
+                        value=val,
+                        unit="A",
+                        classification="MEASURED",
+                        source=f"{ci} ({nm})",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+            except Exception:
+                pass
+        for pi in sorted(hw.glob("power*_input")):
+            ch = pi.stem.replace("_input", "")
+            try:
+                uw = float(pi.read_text().strip())
+                val = round(uw / 1000000.0, 3)
+                records.append(
+                    TelemetryRecord(
+                        metric=f"hwmon_{nm}_{ch}_power_w",
+                        value=val,
+                        unit="W",
+                        classification="MEASURED",
+                        source=f"{pi} ({nm})",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+            except Exception:
+                pass
+        for tc in sorted(hw.glob("temp*_crit")):
+            ch = tc.stem.replace("_crit", "")
+            try:
+                mc = float(tc.read_text().strip())
+                val = round(mc / 1000.0, 2) if mc > 1000 else round(mc, 2)
+                records.append(
+                    TelemetryRecord(
+                        metric=f"hwmon_{nm}_{ch}_temp_crit",
+                        value=val,
+                        unit="°C",
+                        classification="MEASURED",
+                        source=f"{tc} ({nm})",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+            except Exception:
+                pass
 
     # 8. Raspberry Pi Throttling (Canonical: rpi_throttled_raw, rpi_undervoltage_now, rpi_is_throttled)
     raw_throttled, under_now, throttled_now, err_throttle = read_rpi_throttling()
@@ -929,6 +1123,177 @@ def collect_hardware_telemetry(
             device=dev_name,
         )
     )
+
+    # 10. LM-Sensors Extended Telemetry (JSON-based sensor telemetry across all chips)
+    records.extend(
+        read_lm_sensors_telemetry(
+            run_id=run_id,
+            backend=backend,
+            phase=phase,
+            device=dev_name,
+        )
+    )
+
+    # 11. Host System Load Averages
+    try:
+        load1, load5, load15 = os.getloadavg()
+        for idx, (m_tag, l_val) in enumerate([("1m", load1), ("5m", load5), ("15m", load15)]):
+            records.append(
+                TelemetryRecord(
+                    metric=f"load_average_{m_tag}",
+                    value=round(l_val, 2),
+                    unit="load",
+                    classification="MEASURED",
+                    source=f"os.getloadavg()[{idx}]",
+                    timestamp=now,
+                    backend=backend,
+                    phase=phase,
+                    status="VALID",
+                    run_id=run_id,
+                    device=dev_name,
+                )
+            )
+    except Exception:
+        pass
+
+    # 12. Swap Memory Metrics
+    try:
+        if psutil:
+            sw = psutil.swap_memory()
+            records.append(
+                TelemetryRecord(
+                    metric="swap_utilisation",
+                    value=round(sw.percent, 2),
+                    unit="%",
+                    classification="MEASURED",
+                    source="psutil.swap_memory().percent",
+                    timestamp=now,
+                    backend=backend,
+                    phase=phase,
+                    status="VALID",
+                    run_id=run_id,
+                    device=dev_name,
+                )
+            )
+            records.append(
+                TelemetryRecord(
+                    metric="swap_used_mb",
+                    value=round(sw.used / (1024.0 * 1024.0), 2),
+                    unit="MB",
+                    classification="MEASURED",
+                    source="psutil.swap_memory().used",
+                    timestamp=now,
+                    backend=backend,
+                    phase=phase,
+                    status="VALID",
+                    run_id=run_id,
+                    device=dev_name,
+                )
+            )
+    except Exception:
+        pass
+
+    # 13. Disk I/O & Network I/O Telemetry
+    try:
+        if psutil:
+            dio = psutil.disk_io_counters()
+            if dio:
+                records.append(
+                    TelemetryRecord(
+                        metric="disk_read_mb",
+                        value=round(dio.read_bytes / (1024.0 * 1024.0), 2),
+                        unit="MB",
+                        classification="MEASURED",
+                        source="psutil.disk_io_counters().read_bytes",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+                records.append(
+                    TelemetryRecord(
+                        metric="disk_write_mb",
+                        value=round(dio.write_bytes / (1024.0 * 1024.0), 2),
+                        unit="MB",
+                        classification="MEASURED",
+                        source="psutil.disk_io_counters().write_bytes",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+            nio = psutil.net_io_counters()
+            if nio:
+                records.append(
+                    TelemetryRecord(
+                        metric="network_bytes_sent_mb",
+                        value=round(nio.bytes_sent / (1024.0 * 1024.0), 2),
+                        unit="MB",
+                        classification="MEASURED",
+                        source="psutil.net_io_counters().bytes_sent",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+                records.append(
+                    TelemetryRecord(
+                        metric="network_bytes_recv_mb",
+                        value=round(nio.bytes_recv / (1024.0 * 1024.0), 2),
+                        unit="MB",
+                        classification="MEASURED",
+                        source="psutil.net_io_counters().bytes_recv",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+            cstats = psutil.cpu_stats()
+            if cstats:
+                records.append(
+                    TelemetryRecord(
+                        metric="cpu_context_switches",
+                        value=cstats.ctx_switches,
+                        unit="count",
+                        classification="MEASURED",
+                        source="psutil.cpu_stats().ctx_switches",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+                records.append(
+                    TelemetryRecord(
+                        metric="cpu_interrupts",
+                        value=cstats.interrupts,
+                        unit="count",
+                        classification="MEASURED",
+                        source="psutil.cpu_stats().interrupts",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+    except Exception:
+        pass
 
     return records
 
