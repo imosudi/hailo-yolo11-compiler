@@ -2,9 +2,9 @@
 # COCO Dataset Descriptor for hailo-yolo11-compiler
 # ==============================================================================
 
-path: dataset
-train: images/train
-val: images/val
+# Root path is omitted so Ultralytics and validator resolve relative to this YAML directory
+train: dataset/images/train
+val: dataset/images/val
 
 nc: 80
 names:
