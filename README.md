@@ -14,7 +14,7 @@ A reproducible, state-machine driven Edge AI MLOps compiler and evaluation pipel
 1. [Project Purpose & Engineering Objectives](#1-project-purpose--engineering-objectives)
 2. [Supported YOLO11 Variants](#2-supported-yolo11-variants)
 3. [Complete Pipeline Stages & CLI Reference](#3-complete-pipeline-stages--cli-reference)
-4. [Software Prerequisites & Canonical Python 3.10 Setup](#4-software-prerequisites--canonical-python-310-setup)
+4. [Software Prerequisites & Canonical Python Environment](#4-software-prerequisites--canonical-python-environment)
 5. [Dataset Format & Pre-flight Validation](#5-dataset-format--pre-flight-validation)
 6. [Configuration System](#6-configuration-system)
 7. [YOLO11 Training & Fine-Tuning](#7-yolo11-training--fine-tuning)
@@ -113,61 +113,71 @@ The compiler dynamically inspects model architecture, class definitions, and tas
 
 ---
 
-## 4. Software Prerequisites & Canonical Python 3.10 Setup
+## 4. Software Prerequisites & Canonical Python Environment
+
+The pipeline follows a defensible **dual-environment architecture** matching the operational boundaries between compilation and edge execution:
+
+| Environment | Hardware / OS | Python Runtime | Primary Responsibilities | Core Dependencies |
+| :--- | :--- | :--- | :--- | :--- |
+| **Development & Compilation Host** | x86_64 Linux (Ubuntu 22.04 / 24.04) | **Python 3.10** (`canonical`) | YOLO11 training, ONNX export, INT8 calibration, Hailo DFC compilation | Hailo DFC v3.34.0, PyTorch, Ultralytics, `numpy==1.26.4` |
+| **Edge Deployment Target** | Raspberry Pi 5 (aarch64 Linux / Bookworm) | **Python 3.12** (`native OS`) | Live camera ingestion, physical Hailo-8L runtime execution, edge benchmarks | HailoRT (`python3-hailort`), `picamera2`, `libcamera`, ONNX Runtime |
 
 > [!IMPORTANT]
-> **Hailo Dataflow Compiler (DFC) v3.34.0** strictly requires **Python 3.10** and `numpy==1.26.4`. The project uses a unified virtual environment **`venv-dfc3`** across all training, export, quantization, and compilation stages.
+> **Hailo Dataflow Compiler (DFC) v3.34.0** strictly requires **Python 3.10** and `numpy==1.26.4` on the x86_64 host. The Raspberry Pi 5 runs native **Python 3.12** with HailoRT (`python3-hailort`), requiring only the compiled `model.hef` binary.
 
-### 1. Ubuntu / Debian Host Setup (with DeadSnakes PPA)
+---
+
+### 4.1 Host Workstation Setup (x86_64 — Python 3.10)
 
 ```bash
-# Add DeadSnakes PPA for Python 3.10 on modern Ubuntu (22.04 / 24.04)
+# 1. Add DeadSnakes PPA for Python 3.10 on modern Ubuntu (22.04 / 24.04)
 sudo add-apt-repository ppa:deadsnakes/ppa -y
 sudo apt-get update
 
-# Install Python 3.10 and build dependencies
+# 2. Install Python 3.10 and build dependencies
 sudo apt-get install -y python3.10 python3.10-venv python3.10-dev git libgl1 libglib2.0-0 graphviz
-```
 
-### 2. Download Hailo Dataflow Compiler (DFC) Wheel
-
-Because Hailo Dataflow Compiler is proprietary software licensed by Hailo Technologies, its `.whl` package must be obtained directly from the official Hailo Developer Zone:
-
-1. **Sign in / Register**: Create a free developer account at the **[Hailo Developer Zone](https://hailo.ai/developer-zone/software-downloads/)**.
-2. **Navigate to Software Downloads**: Go to the **Dataflow Compiler (DFC)** download section.
-3. **Download Wheel**: Select and download the Linux x86_64 wheel:
-   - File name: `hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl`
-4. **Place in Repository Root**: Move the downloaded wheel file into the root of this repository:
-   ```bash
-   cp ~/Downloads/hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl ./
-   ```
-
-### 3. Create & Activate Unified Virtual Environment (`venv-dfc3`)
-
-```bash
-# Create Python 3.10 virtual environment
+# 3. Create Python 3.10 virtual environment
 python3.10 -m venv venv-dfc3
 source venv-dfc3/bin/activate
-
-# Upgrade packaging utilities
 pip install --upgrade pip wheel setuptools
 
-# Install Hailo Dataflow Compiler (DFC) wheel
+# 4. Download and install Hailo Dataflow Compiler (DFC) v3.34.0 wheel
+# (Obtain hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl from Hailo Developer Zone)
 pip install ./hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl
 
-# Install pipeline dependencies (PyTorch, Ultralytics YOLO11, ONNX Runtime, etc.)
+# 5. Install pipeline dependencies
 pip install -e ".[dev,training,onnx]"
 
-# Verify environment readiness
+# 6. Verify environment readiness
+python train_and_compile.py doctor
+```
+
+---
+
+### 4.2 Raspberry Pi 5 Edge Setup (aarch64 — Python 3.12)
+
+On Raspberry Pi OS (Debian 12 Bookworm) or Ubuntu 24.04:
+
+```bash
+# 1. Install system HailoRT, Picamera2, and camera tools via apt
+sudo apt update
+sudo apt install -y python3-hailort python3-picamera2 libcamera-apps
+
+# 2. Create Python 3.12 virtual environment with system site-packages
+python3 -m venv --system-site-packages venv-dfc3
+source venv-dfc3/bin/activate
+pip install --upgrade pip wheel setuptools
+
+# 3. Install lightweight runtime dependencies
+pip install -e ".[onnx]"
+
+# 4. Verify physical Hailo-8L accelerator and camera detection
 python train_and_compile.py doctor
 ```
 
 > [!TIP]
-> Alternatively, execute the automated bootstrapper (which automatically detects and installs the wheel):
-> ```bash
-> ./scripts/bootstrap.sh
-> source venv-dfc3/bin/activate
-> ```
+> Alternatively, execute `./scripts/bootstrap.sh` on either machine to automatically detect the platform architecture and provision the appropriate environment.
 
 ---
 

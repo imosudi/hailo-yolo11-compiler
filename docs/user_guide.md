@@ -66,29 +66,44 @@ The pipeline orchestrates ten discrete phases through an explicit state machine:
 
 ## 2. Environment Preparation & Setup
 
-### Cloning, Virtual Environment & Installation
+The compiler follows a dual-environment operational model:
+- **Compilation Host (x86_64)**: Runs **Python 3.10** (`venv-dfc3`) for Hailo DFC v3.34.0, YOLO11 training, ONNX export, calibration, and HEF compilation.
+- **Edge Accelerator (Raspberry Pi 5 / aarch64)**: Runs native **Python 3.12** with HailoRT (`python3-hailort`), `picamera2`, `libcamera`, and live deployment.
+
+### Host Workstation Setup (x86_64 — Python 3.10)
 
 ```bash
-# 1. Clone your fork or the repository
-git clone https://github.com/<your-username>/hailo-yolo11-compiler.git
-cd hailo-yolo11-compiler
-
-# 2. Create and activate a Python 3.10+ virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# 3. Upgrade packaging tools
+# 1. Create Python 3.10 virtual environment
+python3.10 -m venv venv-dfc3
+source venv-dfc3/bin/activate
 pip install --upgrade pip setuptools wheel
 
-# 4. Install development and ML dependencies
-pip install -e ".[dev]"
-pip install -e ".[training,onnx]"
+# 2. Install Hailo DFC v3.34.0 wheel (obtained from Hailo Developer Zone)
+pip install ./hailo_dataflow_compiler-3.34.0-py3-none-linux_x86_64.whl
 
-# 5. Verify system environment readiness
+# 3. Install pipeline dependencies
+pip install -e ".[dev,training,onnx]"
+
+# 4. Verify system environment readiness
 python train_and_compile.py doctor
 ```
 
-The doctor diagnostic clearly states host capabilities, installed packages, compiler availability, and accelerator hardware detection.
+### Raspberry Pi 5 Edge Setup (aarch64 — Python 3.12)
+
+```bash
+# 1. Install system HailoRT and camera libraries
+sudo apt update && sudo apt install -y python3-hailort python3-picamera2 libcamera-apps
+
+# 2. Create Python 3.12 virtual environment with system packages
+python3 -m venv --system-site-packages venv-dfc3
+source venv-dfc3/bin/activate
+
+# 3. Install runtime dependencies
+pip install -e ".[onnx]"
+
+# 4. Verify physical accelerator and camera detection
+python train_and_compile.py doctor
+```
 
 ---
 
