@@ -29,9 +29,21 @@ class TelemetryRecord:
     source: str
     timestamp: str
     reason: Optional[str] = None
+    backend: Optional[str] = None
+    phase: Optional[str] = None
+    status: Optional[str] = None  # VALID | UNAVAILABLE
+    run_id: Optional[str] = None
+    device: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return asdict(self)
+        d = asdict(self)
+        if d.get("status") is None:
+            d["status"] = (
+                "VALID"
+                if d.get("value") is not None and d.get("classification") != "UNAVAILABLE"
+                else "UNAVAILABLE"
+            )
+        return d
 
 
 def get_git_provenance(repo_dir: Optional[str] = None) -> Dict[str, Any]:
@@ -117,14 +129,122 @@ def get_dependency_versions() -> Dict[str, Any]:
     }
 
 
-def collect_hardware_telemetry() -> List[TelemetryRecord]:
-    """Collect system telemetry with strict provenance classifications."""
+def read_rpi_throttling() -> Tuple[Optional[str], Optional[bool], Optional[bool], Optional[str]]:
+    """Parse Raspberry Pi throttling bitmask via vcgencmd.
+
+    Returns:
+        (raw_bitmask_str, undervoltage_now, is_throttled_now, error_reason)
+    """
+    if not which("vcgencmd"):
+        return None, None, None, "vcgencmd tool not present on host"
+    try:
+        out = subprocess.check_output(
+            ["vcgencmd", "get_throttled"], text=True, stderr=subprocess.DEVNULL
+        ).strip()
+        m = re.search(r"throttled=(0x[0-9a-fA-F]+|[0-9]+)", out)
+        if m:
+            raw_str = m.group(1)
+            raw_int = int(raw_str, 16) if raw_str.startswith("0x") else int(raw_str)
+            undervolt_now = bool(raw_int & 0x1)
+            is_throttled_now = bool(raw_int & 0xF)
+            return raw_str, undervolt_now, is_throttled_now, None
+    except Exception as e:
+        return None, None, None, str(e)
+    return None, None, None, "Failed to parse vcgencmd get_throttled output"
+
+
+def detect_hailo_device_presence() -> Tuple[bool, str]:
+    """Detect presence of Hailo hardware accelerator."""
+    if Path("/dev/hailo0").exists():
+        return True, "/dev/hailo0"
+    for pci_path in Path("/sys/bus/pci/devices").glob("*"):
+        try:
+            vendor = (pci_path / "vendor").read_text().strip().lower()
+            if vendor in ("0x1e60", "1e60"):
+                return True, f"pci:{pci_path.name}"
+        except Exception:
+            pass
+    if which("hailortcli"):
+        try:
+            res = subprocess.run(["hailortcli", "scan"], capture_output=True, text=True, timeout=2)
+            if res.returncode == 0 and "Hailo" in res.stdout:
+                return True, "hailortcli scan"
+        except Exception:
+            pass
+    return False, "sysfs_and_dev_probe"
+
+
+def read_hailo_temperature() -> Tuple[Optional[float], str, str, Optional[str]]:
+    """Read Hailo device temperature if exposed by driver/runtime."""
+    for hw_dir in Path("/sys/class/hwmon").glob("hwmon*"):
+        name_f = hw_dir / "name"
+        if name_f.is_file():
+            try:
+                name = name_f.read_text().strip().lower()
+                if "hailo" in name:
+                    temp_f = hw_dir / "temp1_input"
+                    if temp_f.is_file():
+                        mc = float(temp_f.read_text().strip())
+                        return round(mc / 1000.0, 2), "MEASURED", str(temp_f), None
+            except Exception:
+                pass
+    return None, "UNAVAILABLE", "hailo_driver", "Hailo device driver or hardware interface does not expose on-chip temperature sensor"
+
+
+def read_hailo_power_watts() -> Tuple[Optional[float], str, str, Optional[str]]:
+    """Directly measure Hailo power if supported by device interface."""
+    hailortcli_bin = which("hailortcli")
+    if hailortcli_bin:
+        try:
+            proc = subprocess.run(
+                [hailortcli_bin, "measure-power", "--duration", "1"],
+                capture_output=True,
+                text=True,
+                timeout=4,
+            )
+            if proc.returncode == 0:
+                m = re.search(
+                    r"(?:average|Average|\(average\)|Power|power)[^0-9]*([0-9]+\.[0-9]+)\s*W",
+                    proc.stdout,
+                )
+                if not m:
+                    m = re.search(r"([0-9]+\.[0-9]+)\s*W", proc.stdout)
+                if m:
+                    return round(float(m.group(1)), 3), "MEASURED", "hailortcli measure-power", None
+        except Exception:
+            pass
+    return None, "UNAVAILABLE", "hailortcli", "Hailo hardware interface does not support onboard power measurement (INA sensor not present on Raspberry Pi AI HAT+)"
+
+
+def collect_hardware_telemetry(
+    run_id: Optional[str] = None,
+    backend: str = "cpu",
+    phase: str = "performance_validation",
+    device: Optional[str] = None,
+) -> List[TelemetryRecord]:
+    """Collect system telemetry including all canonical identifiers with strict provenance."""
     records: List[TelemetryRecord] = []
     now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    dev_name = device or f"{platform.system()} {platform.machine()}"
 
-    # 1. CPU
+    # 1. Host CPU Utilisation (Canonical: cpu_utilisation)
     try:
-        cpu_pct = psutil.cpu_percent(interval=0.1)
+        cpu_pct = round(psutil.cpu_percent(interval=0.1), 2) if psutil else None
+        records.append(
+            TelemetryRecord(
+                metric="cpu_utilisation",
+                value=cpu_pct,
+                unit="%",
+                classification="MEASURED",
+                source="psutil.cpu_percent",
+                timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID" if cpu_pct is not None else "UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
         records.append(
             TelemetryRecord(
                 metric="cpu_utilization",
@@ -133,24 +253,149 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
                 classification="MEASURED",
                 source="psutil",
                 timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID" if cpu_pct is not None else "UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
             )
         )
     except Exception as e:
         records.append(
             TelemetryRecord(
-                metric="cpu_utilization",
+                metric="cpu_utilisation",
                 value=None,
-                unit="percent",
+                unit="%",
                 classification="UNAVAILABLE",
                 source="psutil",
                 timestamp=now,
                 reason=str(e),
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
             )
         )
 
-    # 2. Memory
+    # 2. CPU Core Frequencies (Canonical: cpu_freq_cpu*_mhz)
+    try:
+        core_freqs = psutil.cpu_freq(percpu=True) if psutil else None
+        if core_freqs:
+            for idx, f_info in enumerate(core_freqs):
+                records.append(
+                    TelemetryRecord(
+                        metric=f"cpu_freq_cpu{idx}_mhz",
+                        value=round(f_info.current, 1) if f_info.current else None,
+                        unit="MHz",
+                        classification="MEASURED",
+                        source=f"psutil.cpu_freq(percpu=True)[{idx}]",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID" if f_info.current else "UNAVAILABLE",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+        else:
+            cpu_dirs = sorted(Path("/sys/devices/system/cpu").glob("cpu[0-9]*"))
+            found_sysfs = False
+            for c_dir in cpu_dirs:
+                freq_f = c_dir / "cpufreq" / "scaling_cur_freq"
+                if freq_f.is_file():
+                    try:
+                        khz = int(freq_f.read_text().strip())
+                        mhz = round(khz / 1000.0, 1)
+                        core_idx = c_dir.name.replace("cpu", "")
+                        records.append(
+                            TelemetryRecord(
+                                metric=f"cpu_freq_cpu{core_idx}_mhz",
+                                value=mhz,
+                                unit="MHz",
+                                classification="MEASURED",
+                                source=str(freq_f),
+                                timestamp=now,
+                                backend=backend,
+                                phase=phase,
+                                status="VALID",
+                                run_id=run_id,
+                                device=dev_name,
+                            )
+                        )
+                        found_sysfs = True
+                    except Exception:
+                        pass
+            if not found_sysfs:
+                records.append(
+                    TelemetryRecord(
+                        metric="cpu_freq_cpu0_mhz",
+                        value=None,
+                        unit="MHz",
+                        classification="UNAVAILABLE",
+                        source="sysfs/psutil",
+                        timestamp=now,
+                        reason="CPU core frequency interface not accessible",
+                        backend=backend,
+                        phase=phase,
+                        status="UNAVAILABLE",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+    except Exception as e:
+        records.append(
+            TelemetryRecord(
+                metric="cpu_freq_cpu0_mhz",
+                value=None,
+                unit="MHz",
+                classification="UNAVAILABLE",
+                source="psutil",
+                timestamp=now,
+                reason=str(e),
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+
+    # 3. Host Memory Utilisation & Available (Canonical: memory_utilisation, memory_available_mb)
     try:
         mem = psutil.virtual_memory()
+        records.append(
+            TelemetryRecord(
+                metric="memory_utilisation",
+                value=round(mem.percent, 2),
+                unit="%",
+                classification="DERIVED",
+                source="psutil.virtual_memory().percent",
+                timestamp=now,
+                reason="Calculated as (total - available) / total * 100; available memory excludes reclaimable page cache and buffers.",
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+        avail_mb = round(mem.available / (1024.0 * 1024.0), 2)
+        records.append(
+            TelemetryRecord(
+                metric="memory_available_mb",
+                value=avail_mb,
+                unit="MB",
+                classification="MEASURED",
+                source="psutil.virtual_memory().available",
+                timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
         records.append(
             TelemetryRecord(
                 metric="memory_total",
@@ -159,6 +404,11 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
                 classification="MEASURED",
                 source="psutil",
                 timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
             )
         )
         records.append(
@@ -169,32 +419,148 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
                 classification="MEASURED",
                 source="psutil",
                 timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
             )
         )
         records.append(
             TelemetryRecord(
                 metric="memory_used_percent",
-                value=mem.percent,
+                value=round(mem.percent, 2),
                 unit="percent",
                 classification="DERIVED",
                 source="psutil",
                 timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
             )
         )
     except Exception as e:
         records.append(
             TelemetryRecord(
-                metric="memory_usage",
+                metric="memory_utilisation",
                 value=None,
-                unit="bytes",
+                unit="%",
                 classification="UNAVAILABLE",
                 source="psutil",
                 timestamp=now,
                 reason=str(e),
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+        records.append(
+            TelemetryRecord(
+                metric="memory_available_mb",
+                value=None,
+                unit="MB",
+                classification="UNAVAILABLE",
+                source="psutil",
+                timestamp=now,
+                reason=str(e),
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
             )
         )
 
-    # 3. Storage
+    # 4. Process Memory RSS & Container Cgroup Memory
+    try:
+        proc_rss_bytes = psutil.Process(os.getpid()).memory_info().rss
+        proc_rss_mb = round(proc_rss_bytes / (1024.0 * 1024.0), 2)
+        records.append(
+            TelemetryRecord(
+                metric="process_memory_rss_mb",
+                value=proc_rss_mb,
+                unit="MB",
+                classification="MEASURED",
+                source="psutil.Process().memory_info().rss",
+                timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+    except Exception as e:
+        records.append(
+            TelemetryRecord(
+                metric="process_memory_rss_mb",
+                value=None,
+                unit="MB",
+                classification="UNAVAILABLE",
+                source="psutil.Process()",
+                timestamp=now,
+                reason=str(e),
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+
+    # Container cgroup memory
+    cgroup_read = False
+    for cg_path in (
+        Path("/sys/fs/cgroup/memory.current"),
+        Path("/sys/fs/cgroup/memory/memory.usage_in_bytes"),
+    ):
+        if cg_path.is_file():
+            try:
+                cg_bytes = int(cg_path.read_text().strip())
+                cg_mb = round(cg_bytes / (1024.0 * 1024.0), 2)
+                records.append(
+                    TelemetryRecord(
+                        metric="container_cgroup_memory_mb",
+                        value=cg_mb,
+                        unit="MB",
+                        classification="MEASURED",
+                        source=str(cg_path),
+                        timestamp=now,
+                        reason="Current memory charged to benchmark container cgroup",
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+                cgroup_read = True
+                break
+            except Exception:
+                pass
+    if not cgroup_read:
+        records.append(
+            TelemetryRecord(
+                metric="container_cgroup_memory_mb",
+                value=None,
+                unit="MB",
+                classification="UNAVAILABLE",
+                source="/sys/fs/cgroup",
+                timestamp=now,
+                reason="Process running outside container or cgroup memory interface unmounted",
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+
+    # 5. Storage Metrics
     try:
         disk = psutil.disk_usage(os.getcwd())
         records.append(
@@ -205,6 +571,11 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
                 classification="MEASURED",
                 source="psutil",
                 timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
             )
         )
         records.append(
@@ -215,45 +586,92 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
                 classification="DERIVED",
                 source="psutil",
                 timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
             )
         )
     except Exception as e:
         records.append(
             TelemetryRecord(
-                metric="disk_usage",
+                metric="disk_free",
                 value=None,
                 unit="bytes",
                 classification="UNAVAILABLE",
                 source="psutil",
                 timestamp=now,
                 reason=str(e),
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
             )
         )
 
-    # 4. SoC Thermal Zones (Linux / Raspberry Pi)
+    # 6. Thermal Zones (Canonical: thermal_*_temp)
     thermal_read = False
-    for tz_path in ("/sys/class/thermal/thermal_zone0/temp", "/sys/class/hwmon/hwmon0/temp1_input"):
-        if os.path.exists(tz_path):
+    for tz in sorted(Path("/sys/class/thermal").glob("thermal_zone*")):
+        t_f = tz / "temp"
+        type_f = tz / "type"
+        st = type_f.read_text().strip() if type_f.is_file() else "thermal"
+        if t_f.is_file():
             try:
-                with open(tz_path, "r") as f:
-                    milli_c = float(f.read().strip())
-                    deg_c = milli_c / 1000.0 if milli_c > 1000 else milli_c
+                mc = float(t_f.read_text().strip())
+                val = round(mc / 1000.0, 2) if mc > 1000 else round(mc, 2)
+                records.append(
+                    TelemetryRecord(
+                        metric=f"thermal_{tz.name}_temp",
+                        value=val,
+                        unit="°C",
+                        classification="MEASURED",
+                        source=f"{t_f} ({st})",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+                if not thermal_read:
                     records.append(
                         TelemetryRecord(
                             metric="soc_temperature",
-                            value=round(deg_c, 2),
+                            value=val,
                             unit="degC",
                             classification="MEASURED",
-                            source=tz_path,
+                            source=str(t_f),
                             timestamp=now,
+                            backend=backend,
+                            phase=phase,
+                            status="VALID",
+                            run_id=run_id,
+                            device=dev_name,
                         )
                     )
-                    thermal_read = True
-                    break
+                thermal_read = True
             except Exception:
                 pass
-
     if not thermal_read:
+        records.append(
+            TelemetryRecord(
+                metric="thermal_zone0_temp",
+                value=None,
+                unit="°C",
+                classification="UNAVAILABLE",
+                source="thermal_zone",
+                timestamp=now,
+                reason="Linux thermal zone sysfs entry not found or unreadable",
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
         records.append(
             TelemetryRecord(
                 metric="soc_temperature",
@@ -263,77 +681,252 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
                 source="thermal_zone",
                 timestamp=now,
                 reason="Linux thermal zone sysfs entry not found or unreadable",
+                backend=backend,
+                phase=phase,
+                status="UNAVAILABLE",
+                run_id=run_id,
+                device=dev_name,
             )
         )
 
-    # 5. Raspberry Pi Throttling & PMIC Power
-    throttled_read = False
-    if which("vcgencmd"):
-        try:
-            out = subprocess.check_output(["vcgencmd", "get_throttled"], text=True).strip()
-            records.append(
-                TelemetryRecord(
-                    metric="rpi_throttled_state",
-                    value=out,
-                    unit="flags",
-                    classification="MEASURED",
-                    source="vcgencmd",
-                    timestamp=now,
+    # 7. Hardware-Monitoring Sensors (Canonical: hwmon_*_temp, hwmon_*_rpm)
+    for hw in sorted(Path("/sys/class/hwmon").glob("hwmon*")):
+        nm = (hw / "name").read_text().strip() if (hw / "name").is_file() else hw.name
+        for ti in sorted(hw.glob("temp*_input")):
+            ch = ti.stem.replace("_input", "")
+            try:
+                mc = float(ti.read_text().strip())
+                val = round(mc / 1000.0, 2) if mc > 1000 else round(mc, 2)
+                records.append(
+                    TelemetryRecord(
+                        metric=f"hwmon_{nm}_{ch}_temp",
+                        value=val,
+                        unit="°C",
+                        classification="MEASURED",
+                        source=f"{ti} ({nm})",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
                 )
-            )
-            throttled_read = True
-        except Exception:
-            pass
+            except Exception:
+                pass
+        for fi in sorted(hw.glob("fan*_input")):
+            ch = fi.stem.replace("_input", "")
+            try:
+                rpm = int(fi.read_text().strip())
+                records.append(
+                    TelemetryRecord(
+                        metric=f"hwmon_{nm}_{ch}_rpm",
+                        value=rpm,
+                        unit="RPM",
+                        classification="MEASURED",
+                        source=f"{fi} ({nm})",
+                        timestamp=now,
+                        backend=backend,
+                        phase=phase,
+                        status="VALID",
+                        run_id=run_id,
+                        device=dev_name,
+                    )
+                )
+            except Exception:
+                pass
 
-        # RPi 5 Renesas DA9091 PMIC Power Measurement
-        pmic_w, sys_w, _ = read_rpi_pmic_power()
-        if pmic_w is not None:
-            records.append(
-                TelemetryRecord(
-                    metric="rpi_pmic_power",
-                    value=pmic_w,
-                    unit="W",
-                    classification="MEASURED",
-                    source="vcgencmd pmic_read_adc",
-                    timestamp=now,
-                )
+    # 8. Raspberry Pi Throttling (Canonical: rpi_throttled_raw, rpi_undervoltage_now, rpi_is_throttled)
+    raw_throttled, under_now, throttled_now, err_throttle = read_rpi_throttling()
+    if raw_throttled is not None:
+        records.append(
+            TelemetryRecord(
+                metric="rpi_throttled_raw",
+                value=raw_throttled,
+                unit="hex",
+                classification="MEASURED",
+                source="vcgencmd get_throttled",
+                timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
             )
-        if sys_w is not None:
-            records.append(
-                TelemetryRecord(
-                    metric="rpi_system_power",
-                    value=sys_w,
-                    unit="W",
-                    classification="DERIVED",
-                    source="pmic_model",
-                    timestamp=now,
-                )
+        )
+        records.append(
+            TelemetryRecord(
+                metric="rpi_undervoltage_now",
+                value=under_now,
+                unit="boolean",
+                classification="DERIVED",
+                source="vcgencmd_bit0",
+                timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
             )
-
-    if not throttled_read:
+        )
+        records.append(
+            TelemetryRecord(
+                metric="rpi_is_throttled",
+                value=throttled_now,
+                unit="boolean",
+                classification="DERIVED",
+                source="vcgencmd_active_bits_0_3",
+                timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
         records.append(
             TelemetryRecord(
                 metric="rpi_throttled_state",
-                value=None,
+                value=f"throttled={raw_throttled}",
                 unit="flags",
-                classification="UNAVAILABLE",
+                classification="MEASURED",
                 source="vcgencmd",
                 timestamp=now,
-                reason="vcgencmd tool not present on host",
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+    else:
+        for m_name, u in [
+            ("rpi_throttled_raw", "hex"),
+            ("rpi_undervoltage_now", "boolean"),
+            ("rpi_is_throttled", "boolean"),
+            ("rpi_throttled_state", "flags"),
+        ]:
+            records.append(
+                TelemetryRecord(
+                    metric=m_name,
+                    value=None,
+                    unit=u,
+                    classification="UNAVAILABLE",
+                    source="vcgencmd",
+                    timestamp=now,
+                    reason=err_throttle or "vcgencmd tool not present on host",
+                    backend=backend,
+                    phase=phase,
+                    status="UNAVAILABLE",
+                    run_id=run_id,
+                    device=dev_name,
+                )
+            )
+
+    # RPi 5 PMIC Power
+    pmic_w, sys_w, _ = read_rpi_pmic_power()
+    if pmic_w is not None:
+        records.append(
+            TelemetryRecord(
+                metric="rpi_pmic_power",
+                value=pmic_w,
+                unit="W",
+                classification="MEASURED",
+                source="vcgencmd pmic_read_adc",
+                timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
+            )
+        )
+    if sys_w is not None:
+        records.append(
+            TelemetryRecord(
+                metric="rpi_system_power",
+                value=sys_w,
+                unit="W",
+                classification="DERIVED",
+                source="pmic_model",
+                timestamp=now,
+                backend=backend,
+                phase=phase,
+                status="VALID",
+                run_id=run_id,
+                device=dev_name,
             )
         )
 
-    # 6. Hailo Accelerator Power Telemetry
-    hailo_w, h_class, h_source, h_reason = measure_hailo_power()
+    # 9. Hailo Accelerator Identifiers (Canonical: hailo_device_present, hailo_temperature_c, hailo_power_watts)
+    dev_present, dev_source = detect_hailo_device_presence()
+    records.append(
+        TelemetryRecord(
+            metric="hailo_device_present",
+            value=dev_present,
+            unit="boolean",
+            classification="MEASURED",
+            source=dev_source,
+            timestamp=now,
+            backend="hailo8l" if dev_present else backend,
+            phase=phase,
+            status="VALID",
+            run_id=run_id,
+            device=dev_name,
+        )
+    )
+
+    h_temp, t_class, t_source, t_reason = read_hailo_temperature()
+    records.append(
+        TelemetryRecord(
+            metric="hailo_temperature_c",
+            value=h_temp,
+            unit="°C",
+            classification=t_class,
+            source=t_source,
+            timestamp=now,
+            reason=t_reason,
+            backend="hailo8l",
+            phase=phase,
+            status="VALID" if h_temp is not None else "UNAVAILABLE",
+            run_id=run_id,
+            device=dev_name,
+        )
+    )
+
+    h_pow_w, p_class, p_source, p_reason = read_hailo_power_watts()
+    records.append(
+        TelemetryRecord(
+            metric="hailo_power_watts",
+            value=h_pow_w,
+            unit="W",
+            classification=p_class,
+            source=p_source,
+            timestamp=now,
+            reason=p_reason,
+            backend="hailo8l",
+            phase=phase,
+            status="VALID" if h_pow_w is not None else "UNAVAILABLE",
+            run_id=run_id,
+            device=dev_name,
+        )
+    )
+
+    # Broader hailo_power metric
     records.append(
         TelemetryRecord(
             metric="hailo_power",
-            value=hailo_w,
+            value=h_pow_w,
             unit="W",
-            classification=h_class,
-            source=h_source,
+            classification=p_class,
+            source=p_source,
             timestamp=now,
-            reason=h_reason,
+            reason=p_reason,
+            backend="hailo8l",
+            phase=phase,
+            status="VALID" if h_pow_w is not None else "UNAVAILABLE",
+            run_id=run_id,
+            device=dev_name,
         )
     )
 

@@ -33,9 +33,15 @@ def collect_performance_report(
     onnx_throughput: Optional[ThroughputBenchmarkResult] = None,
     hailo_latency: Optional[LatencyBenchmarkResult] = None,
     hailo_throughput: Optional[ThroughputBenchmarkResult] = None,
+    run_id: Optional[str] = None,
+    backend: str = "cpu",
+    phase: str = "performance_validation",
+    device: Optional[str] = None,
 ) -> PerformanceReport:
     """Capture system telemetry snapshot alongside benchmark metrics."""
-    telemetry = collect_hardware_telemetry()
+    telemetry = collect_hardware_telemetry(
+        run_id=run_id, backend=backend, phase=phase, device=device
+    )
     return PerformanceReport(
         onnx_latency=onnx_latency,
         onnx_throughput=onnx_throughput,

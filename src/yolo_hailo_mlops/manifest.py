@@ -52,9 +52,11 @@ class RunManifest:
         """Record an evaluation or execution metric."""
         self.metrics[name] = value
 
-    def record_telemetry(self, records: List[TelemetryRecord]) -> None:
+    def record_telemetry(self, records: Union[List[TelemetryRecord], List[Dict[str, Any]]]) -> None:
         """Record telemetry with provenance classification."""
-        self.telemetry = [r.to_dict() for r in records]
+        for r in records:
+            d = r.to_dict() if hasattr(r, "to_dict") else dict(r)
+            self.telemetry.append(d)
 
     def record_error(self, code: str, phase: str, message: str, remediation: Optional[str] = None) -> None:
         """Record a pipeline error."""

@@ -401,6 +401,7 @@ class PipelineRunner:
             from yolo_hailo_mlops.performance.latency import benchmark_onnx_latency
             from yolo_hailo_mlops.performance.resources import collect_performance_report
             from yolo_hailo_mlops.performance.throughput import calculate_throughput_from_latency
+            from yolo_hailo_mlops.provenance import collect_hardware_telemetry
         except (ImportError, ModuleNotFoundError) as e:
             raise ConfigurationError(
                 f"Missing dependency for validation: {e}. Run 'pip install -e \".[training,onnx]\"' or './scripts/bootstrap.sh'.",
@@ -458,7 +459,13 @@ class PipelineRunner:
                 imgsz=self.config.export.imgsz,
             )
         onnx_fps = calculate_throughput_from_latency(onnx_lat)
-        perf_report = collect_performance_report(onnx_latency=onnx_lat, onnx_throughput=onnx_fps)
+        perf_report = collect_performance_report(
+            onnx_latency=onnx_lat,
+            onnx_throughput=onnx_fps,
+            run_id=self.run_id,
+            backend="cpu",
+            phase="performance_validation",
+        )
         self.manifest.record_telemetry(perf_report.telemetry)
         self.manifest.record_metric("performance", perf_report.to_dict())
         self.sm.complete_phase(PhaseName.PERFORMANCE_VALIDATION, metadata=perf_report.to_dict())
@@ -474,14 +481,28 @@ class PipelineRunner:
             rt_report = runtime_validator.run_smoke_test(hef_p)
             if rt_report.status == "SUCCESS":
                 self.sm.complete_phase(PhaseName.HAILO_VALIDATION, metadata=rt_report.to_dict())
+                # Collect hailo8l backend telemetry sample
+                hailo_telemetry = collect_hardware_telemetry(
+                    run_id=self.run_id,
+                    backend="hailo8l",
+                    phase="hailo_validation",
+                )
                 if rt_report.power_watts is not None:
-                    # Update manifest telemetry with active power measurement
+                    for t in hailo_telemetry:
+                        if t.metric in ("hailo_power", "hailo_power_watts"):
+                            t.value = rt_report.power_watts
+                            t.classification = "MEASURED"
+                            t.source = "hailortcli_live_inference"
+                            t.reason = None
+                            t.status = "VALID"
                     for t in self.manifest.telemetry:
-                        if t.get("metric") == "hailo_power":
+                        if t.get("metric") in ("hailo_power", "hailo_power_watts"):
                             t["value"] = rt_report.power_watts
                             t["classification"] = "MEASURED"
                             t["source"] = "hailortcli_live_inference"
                             t["reason"] = None
+                            t["status"] = "VALID"
+                self.manifest.record_telemetry(hailo_telemetry)
             elif rt_report.status == "NOT_EXECUTED":
                 self.sm.mark_not_executed(PhaseName.HAILO_VALIDATION, reason=rt_report.reason or "Hardware absent")
             else:
@@ -595,6 +616,91 @@ class PipelineRunner:
             md_lines.append(
                 f"| `{t.get('metric')}` | {val_str} | {t.get('unit')} | `{t.get('classification')}` | `{t.get('source')}` |"
             )
+
+        md_lines.extend([
+            "",
+            "## Additional Canonical Telemetry Identifiers",
+            "",
+            "| Identifier | Description | Unit / type | Collection notes |",
+            "|---|---|---|---|",
+            "| `cpu_utilisation` | Overall host CPU utilisation | `%` | Sample throughout each benchmark phase |",
+            "| `cpu_freq_cpu*_mhz` | Frequency of each CPU core | MHz | Expand `*` to the actual core index, e.g. `cpu_freq_cpu0_mhz` |",
+            "| `memory_utilisation` | Physical memory utilisation | `%` | Document the calculation and treatment of cache |",
+            "| `memory_available_mb` | Memory available for new allocations | MB | Prefer the OS-reported available-memory value |",
+            "| `thermal_*_temp` | Temperature readings from thermal zones | °C | Expand `*` to a stable sensor/zone identifier |",
+            "| `hwmon_*_temp` | Temperature readings exposed by hardware-monitoring sensors | °C | Retain the sensor name and channel |",
+            "| `hwmon_*_rpm` | Fan rotational speed | RPM | Record only when a fan tachometer reading is exposed |",
+            "| `rpi_throttled_raw` | Raw Raspberry Pi throttling status bitmask | Integer / hexadecimal | Capture the unmodified value from the supported platform interface |",
+            "| `rpi_undervoltage_now` | Current undervoltage status | Boolean or integer | Preserve the source interface's native representation |",
+            "| `rpi_is_throttled` | Normalised current throttling indicator | Boolean | Derive from documented throttling-status bits |",
+            "| `hailo_device_present` | Whether a Hailo device is detected | Boolean | Record discovery method and timestamp |",
+            "| `hailo_temperature_c` | Hailo device temperature | °C | Collect only if exposed by the installed driver/runtime |",
+            "| `hailo_power_watts` | Hailo device power | W | Collect only if directly measurable or reported by a supported device interface |",
+            "| `process_memory_rss_mb` | Resident memory used by the benchmark process | MB | Sample separately for CPU and Hailo runs |",
+            "| `container_cgroup_memory_mb` | Memory charged to the benchmark container's cgroup | MB | Record the cgroup source and whether the value represents current or peak usage |",
+            "",
+            "### Identifier and collection rules",
+            "",
+            "1. **Stable core identifiers:** Expand wildcard identifiers into concrete names in stored telemetry records. Retain the wildcard only in the registry definition.",
+            "2. **Sensor identity:** Store sensor name, channel, source path or interface, and availability alongside thermal and `hwmon` measurements.",
+            "3. **Throttling semantics:** Preserve `rpi_throttled_raw` unchanged. Derive `rpi_is_throttled` using documented bit definitions and distinguish current throttling from historical throttling flags.",
+            "4. **Availability:** If Hailo temperature or power is not exposed, record the metric as `UNAVAILABLE`; do not substitute zero or estimate it from CPU utilisation.",
+            "5. **Memory scope:** Keep process RSS, container cgroup memory and host memory utilisation as separate metrics. They measure different resource scopes and must not be added together.",
+            "6. **Benchmark association:** Attach every sample to the run ID, execution backend (`cpu` or `hailo8l`), pipeline phase, timestamp and device/host identifier.",
+            "7. **Sampling:** Collect CPU utilisation, core frequencies, memory, thermal readings, throttling status and process/container memory periodically throughout the measurement window. Capture device presence at startup and whenever device-discovery state changes.",
+            "",
+            "### Recommended record example",
+            "",
+            "```json",
+            "{",
+            '  "metric": "cpu_utilisation",',
+            '  "value": 64.2,',
+            '  "unit": "%",',
+            '  "classification": "MEASURED",',
+            '  "backend": "hailo8l",',
+            '  "phase": "inference",',
+            '  "status": "VALID",',
+            '  "run_id": "benchmark-001"',
+            "}",
+            "```",
+            "",
+            "The value above is illustrative, not a measurement. These identifiers should be integrated into the existing telemetry registry without removing the broader latency, accuracy, power, storage, artifact-integrity or compilation-status metrics.",
+            "",
+            "### Measured Canonical Telemetry Records",
+            "",
+            "| Metric | Value | Unit | Status | Backend | Phase | Classification | Source / Details |",
+            "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |",
+        ])
+
+        canonical_prefixes = (
+            "cpu_utilisation",
+            "cpu_freq_",
+            "memory_utilisation",
+            "memory_available_mb",
+            "thermal_",
+            "hwmon_",
+            "rpi_throttled_raw",
+            "rpi_undervoltage_now",
+            "rpi_is_throttled",
+            "hailo_device_present",
+            "hailo_temperature_c",
+            "hailo_power_watts",
+            "process_memory_rss_mb",
+            "container_cgroup_memory_mb",
+        )
+        for t in self.manifest.telemetry:
+            m_name = t.get("metric", "")
+            if any(m_name.startswith(p) or m_name == p for p in canonical_prefixes):
+                v = t.get("value")
+                val_str = str(v) if v is not None else "UNAVAILABLE"
+                st = t.get("status") or ("VALID" if v is not None else "UNAVAILABLE")
+                b_end = t.get("backend") or "-"
+                ph = t.get("phase") or "-"
+                cl = t.get("classification") or "-"
+                src_det = t.get("reason") or t.get("source") or "-"
+                md_lines.append(
+                    f"| `{m_name}` | {val_str} | {t.get('unit')} | `{st}` | `{b_end}` | `{ph}` | `{cl}` | {src_det} |"
+                )
 
         md_lines.extend([
             "",
