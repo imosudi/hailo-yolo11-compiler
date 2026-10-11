@@ -115,6 +115,25 @@ def get_dependency_versions() -> Dict[str, Any]:
         if which("hailortcli"):
             hailort = {"version": "cli_detected", "status": "available"}
 
+    # OpenCV check
+    cv2_info = get_pkg_info("opencv-python")
+    if cv2_info["status"] == "unavailable":
+        try:
+            import cv2
+            cv2_info = {"version": getattr(cv2, "__version__", "installed"), "status": "available"}
+        except ImportError:
+            pass
+
+    # Picamera2 check (virtualenv or system dist-packages)
+    picam2_info = {"version": None, "status": "unavailable", "reason": "python3-picamera2 not installed"}
+    try:
+        from yolo_hailo_mlops.deployment.sources import try_import_picamera2
+        picam2_cls = try_import_picamera2()
+        if picam2_cls is not None:
+            picam2_info = {"version": "available", "status": "available"}
+    except Exception:
+        pass
+
     return {
         "python": sys.version.split()[0],
         "torch": get_pkg_info("torch"),
@@ -127,6 +146,8 @@ def get_dependency_versions() -> Dict[str, Any]:
         "pyyaml": get_pkg_info("pyyaml"),
         "pillow": get_pkg_info("pillow"),
         "numpy": get_pkg_info("numpy"),
+        "opencv": cv2_info,
+        "picamera2": picam2_info,
     }
 
 

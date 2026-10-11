@@ -139,7 +139,33 @@ class PipelineRunner:
         hw_st = "PASS" if hw_count > 0 else "NOT AVAILABLE"
         print(f"  Linux Hwmon Chips:  [{hw_st:<13}] {hw_count} chip(s) detected")
 
-        # Dataset & Model check
+        # Live Deployment & Camera diagnostics
+        print(f"\n[LIVE DEPLOYMENT & CAMERA]")
+        cv_info = deps.get("opencv", {})
+        cv_st = status_map.get(cv_info.get("status"), "FAIL")
+        cv_desc = cv_info.get("version") or "Missing (pip install opencv-python)"
+        print(f"  OpenCV (cv2):       [{cv_st:<13}] {cv_desc}")
+
+        picam_info = deps.get("picamera2", {})
+        picam_st = status_map.get(picam_info.get("status"), "NOT AVAILABLE")
+        picam_desc = (
+            "Available (Picamera2)"
+            if picam_info.get("status") == "available"
+            else "Not installed (Run 'sudo apt install -y python3-picamera2' or use OpenCV camera)"
+        )
+        print(f"  Picamera2 (RPi CSI):[{picam_st:<13}] {picam_desc}")
+
+        v4l_devices = list(Path("/dev").glob("video*"))
+        v4l_st = "PASS" if v4l_devices else "NOT AVAILABLE"
+        v4l_desc = f"{len(v4l_devices)} device(s) found ({', '.join(d.name for d in v4l_devices[:3])})" if v4l_devices else "No /dev/video* devices detected"
+        print(f"  V4L2 Cameras:       [{v4l_st:<13}] {v4l_desc}")
+
+        has_gui = bool(os.getenv("DISPLAY") or os.getenv("WAYLAND_DISPLAY"))
+        gui_st = "PASS" if has_gui else "HEADLESS"
+        gui_desc = os.getenv("WAYLAND_DISPLAY") or os.getenv("DISPLAY") or "Headless (terminal / SSH mode)"
+        print(f"  Display Window:     [{gui_st:<13}] {gui_desc}")
+
+        # Project configuration check
         print(f"\n[PROJECT CONFIGURATION]")
         model_exists = Path(self.config.model.source).exists()
         model_st = "PASS" if model_exists else "WARN"

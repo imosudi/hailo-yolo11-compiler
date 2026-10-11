@@ -164,6 +164,39 @@ class OpenCVCameraSource(BaseFrameSource):
             self.cap = None
 
 
+def try_import_picamera2() -> Optional[Any]:
+    """Attempt to import Picamera2 from current environment or system dist-packages."""
+    try:
+        from picam2 import Picamera2  # type: ignore
+        return Picamera2
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    try:
+        from picamera2 import Picamera2  # type: ignore
+        return Picamera2
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    # Check system dist-packages (common when installed via 'sudo apt install python3-picamera2' on Raspberry Pi)
+    import sys
+    for dist_dir in ["/usr/lib/python3/dist-packages", "/usr/local/lib/python3/dist-packages"]:
+        if os.path.exists(dist_dir) and dist_dir not in sys.path:
+            sys.path.append(dist_dir)
+            try:
+                from picam2 import Picamera2  # type: ignore
+                return Picamera2
+            except (ImportError, ModuleNotFoundError):
+                pass
+            try:
+                from picamera2 import Picamera2  # type: ignore
+                return Picamera2
+            except (ImportError, ModuleNotFoundError):
+                pass
+
+    return None
+
+
 class Picamera2Source(BaseFrameSource):
     """Raspberry Pi CSI Camera Module via Picamera2 library."""
 
@@ -179,20 +212,16 @@ class Picamera2Source(BaseFrameSource):
         self._height = target_resolution[1] if target_resolution else 480
         self._fps = target_fps or 30.0
 
-        try:
-            from picam2 import Picamera2  # type: ignore
-        except (ImportError, ModuleNotFoundError) as err:
-            try:
-                from picamera2 import Picamera2  # type: ignore
-            except (ImportError, ModuleNotFoundError):
-                raise DeploymentError(
-                    "Picamera2 is not installed. Install with 'sudo apt install python3-picamera2' or use OpenCV camera.",
-                    code="E-DEPLOY-PICAM-001",
-                    remediation="Use '--camera-type opencv' or run on Raspberry Pi OS with libcamera.",
-                ) from err
+        picam2_cls = try_import_picamera2()
+        if picam2_cls is None:
+            raise DeploymentError(
+                "Picamera2 is not installed. Install with 'sudo apt install -y python3-picamera2' or use OpenCV camera.",
+                code="E-DEPLOY-PICAM-001",
+                remediation="Run 'sudo apt-get install -y python3-picamera2' on Raspberry Pi OS, or use '--camera-type opencv' for USB webcam.",
+            )
 
         try:
-            self.picam2 = Picamera2(camera_num=self.camera_num)
+            self.picam2 = picam2_cls(camera_num=self.camera_num)
             config = self.picam2.create_preview_configuration(
                 main={"size": (self._width, self._height), "format": "BGR888"}
             )
@@ -435,11 +464,12 @@ def create_frame_source(
             return OpenCVCameraSource(device_index=cam_idx, target_fps=target_fps, target_resolution=target_resolution)
         else:
             # Auto: Try Picamera2 on Raspberry Pi if available, fallback to OpenCV
-            try:
-                import picam2  # noqa: F401
-                return Picamera2Source(camera_num=int(cam_idx), target_resolution=target_resolution, target_fps=target_fps)
-            except Exception:
-                pass
+            picam2_cls = try_import_picamera2()
+            if picam2_cls is not None:
+                try:
+                    return Picamera2Source(camera_num=int(cam_idx), target_resolution=target_resolution, target_fps=target_fps)
+                except Exception:
+                    pass
             return OpenCVCameraSource(device_index=cam_idx, target_fps=target_fps, target_resolution=target_resolution)
 
     # 2. File or Directory identification

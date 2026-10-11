@@ -34,6 +34,58 @@ else
 fi
 echo ""
 
+# ------------------------------------------------------------------------------
+# System Dependencies: Camera & Live Deployment (Picamera2, V4L2, OpenCV support)
+# ------------------------------------------------------------------------------
+echo "--- Checking Live Deployment Camera & Video Dependencies ---"
+IS_RPI=false
+if [ -f "/proc/device-tree/model" ] && grep -qi "raspberry" /proc/device-tree/model 2>/dev/null; then
+    IS_RPI=true
+    echo "Detected Raspberry Pi platform: $(tr -d '\0' < /proc/device-tree/model)"
+fi
+
+if command -v apt-get &> /dev/null; then
+    DEPS_TO_INSTALL=()
+    
+    # 1. Raspberry Pi CSI Camera Module (Picamera2)
+    if [ "${IS_RPI}" = true ]; then
+        if ! dpkg -s python3-picamera2 &> /dev/null; then
+            DEPS_TO_INSTALL+=("python3-picamera2" "libcamera-tools")
+        else
+            echo "Found Raspberry Pi CSI camera support: python3-picamera2"
+        fi
+    fi
+
+    # 2. V4L2 webcam utilities
+    if ! command -v v4l2-ctl &> /dev/null; then
+        DEPS_TO_INSTALL+=("v4l-utils")
+    else
+        echo "Found V4L2 camera tools: v4l2-ctl"
+    fi
+
+    # 3. OpenCV display / graphics prerequisites
+    for libpkg in libgl1 libglib2.0-0; do
+        if ! dpkg -s "${libpkg}" &> /dev/null; then
+            DEPS_TO_INSTALL+=("${libpkg}")
+        fi
+    done
+
+    if [ ${#DEPS_TO_INSTALL[@]} -gt 0 ]; then
+        echo "Installing live deployment packages via apt-get: ${DEPS_TO_INSTALL[*]}..."
+        if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+            apt-get update -y && apt-get install -y "${DEPS_TO_INSTALL[@]}" || true
+        elif sudo -n true 2>/dev/null; then
+            sudo apt-get update -y && sudo apt-get install -y "${DEPS_TO_INSTALL[@]}" || true
+        else
+            echo "NOTICE: To enable camera hardware acceleration and Picamera2 support, run:"
+            echo "    sudo apt-get update && sudo apt-get install -y ${DEPS_TO_INSTALL[*]}"
+        fi
+    else
+        echo "All system camera and live deployment prerequisites are installed."
+    fi
+fi
+echo ""
+
 # Detect Python interpreter (Prioritize Python 3.10 for Hailo DFC compatibility)
 PYTHON_BIN=""
 for candidate in python3.10 python3.11 python3.12 python3; do
@@ -87,7 +139,7 @@ else
 fi
 
 echo "Installing hailo-yolo11-compiler in editable mode with all dependencies..."
-pip install -e "${REPO_ROOT}[dev,training,onnx]"
+pip install -e "${REPO_ROOT}[dev,training,onnx,deploy]"
 
 echo ""
 echo "=== Bootstrap Complete ==="
