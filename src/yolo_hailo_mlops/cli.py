@@ -992,6 +992,22 @@ def main() -> None:
         elif cmd == "dataset":
             sys.exit(runner.run_dataset())
         elif cmd == "deploy":
+            # Seamlessly delegate to system Python if Hailo is requested/detected but hailo_platform is only in system Python
+            backend_target = deploy_backend or "auto"
+            if backend_target in ("hailo", "auto") and not os.environ.get("HAILO_DELEGATED"):
+                try:
+                    import hailo_platform  # type: ignore
+                except (ImportError, ModuleNotFoundError):
+                    system_py = "/usr/bin/python3"
+                    if os.path.isfile(system_py) and Path(system_py).resolve() != Path(sys.executable).resolve():
+                        import subprocess
+                        chk = subprocess.run([system_py, "-c", "import hailo_platform"], capture_output=True)
+                        if chk.returncode == 0:
+                            print(f"[INFO] Seamlessly delegating Hailo deployment to system Python ({system_py}) where hailo_platform is available...")
+                            env = os.environ.copy()
+                            env["HAILO_DELEGATED"] = "1"
+                            os.execve(system_py, [system_py] + sys.argv, env)
+
             sys.exit(runner.run_deploy())
         elif cmd in ("train", "export", "calibrate", "compile", "validate"):
             if cmd == "train":
