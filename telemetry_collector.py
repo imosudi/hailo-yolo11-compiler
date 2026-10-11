@@ -163,7 +163,14 @@ class TelemetryCollector:
     def __init__(self, run_id=None, backend="cpu", phase="idle", pid=None, path=".",
                  cache_dir=None, detail=False, hailo_probe=False):
         self.run_id = run_id or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:6]
-        self.backend, self.phase = backend, phase
+        b = str(backend or "cpu").lower()
+        if b in ("hailo", "hailo8l", "hailo-8l", "hailo-hat", "npu"):
+            self.backend = "hailo-hat"
+            self.inference_device = "NPU (Hailo HAT)"
+        else:
+            self.backend = "cpu"
+            self.inference_device = "CPU"
+        self.phase = phase
         self.pid = pid or os.getpid()
         self.path, self.cache_dir = path, cache_dir
         self.detail, self.hailo_probe = detail, hailo_probe
@@ -246,6 +253,7 @@ class TelemetryCollector:
             rec = dict(metric=s.metric, value=v, unit=s.unit,
                        classification=s.cls if v is not None else UNAVAILABLE, source=s.source,
                        timestamp=ts, monotonic_ns=mono, reason=s.reason, backend=self.backend,
+                       inference_device=self.inference_device,
                        phase=self.phase, status="VALID" if v is not None else "UNAVAILABLE",
                        run_id=self.run_id, device=self.device)
             if s.labels:
@@ -260,6 +268,7 @@ class TelemetryCollector:
     def s_platform(self, now):
         cfg = lambda m, v, u="string": S(m, v, u, CONFIGURED, "cli")
         yield cfg("benchmark_backend", self.backend, "enum")
+        yield cfg("inference_device", self.inference_device, "string")
         mid = rd("/etc/machine-id")
         yield S("host_id", hashlib.sha256(mid.encode()).hexdigest()[:12] if mid else None, "string",
                 DERIVED, "sha256(/etc/machine-id)[:12]", None if mid else "no machine-id")
@@ -660,7 +669,14 @@ def main(argv=None):
     ap.add_argument("--interval", type=float, default=1.0, help="seconds between samples")
     ap.add_argument("--duration", type=float, default=0, help="seconds to run (0 = until Ctrl-C)")
     ap.add_argument("--phase", default="idle")
-    ap.add_argument("--backend", default="cpu", choices=("cpu", "hailo8l"))
+    ap.add_argument("--backend", default=None, choices=("cpu", "hailo", "hailo8l", "hailo-hat", "npu"),
+                    help="inference execution backend ('cpu' or 'hailo-hat')")
+    ap.add_argument("--target", "--accelerator", dest="target", default=None,
+                    choices=("cpu", "hailo", "hailo8l", "hailo-hat", "npu"),
+                    help="target accelerator ('cpu' or 'hailo-hat')")
+    ap.add_argument("--cpu", action="store_true", help="indicate CPU is running current inference")
+    ap.add_argument("--hailo", "--npu", "--hailo-hat", dest="hailo", action="store_true",
+                    help="indicate Raspberry Pi AI HAT+ Hailo NPU is running current inference")
     ap.add_argument("--run-id")
     ap.add_argument("--out", default="telemetry.jsonl", help="JSONL path, or - for stdout")
     ap.add_argument("--pid", type=int, help="process to monitor (default: the collector itself)")
@@ -672,7 +688,19 @@ def main(argv=None):
     ap.add_argument("--static-only", action="store_true")
     a = ap.parse_args(argv)
 
-    c = TelemetryCollector(a.run_id, a.backend, a.phase, a.pid, a.path, a.cache_dir, a.detail, a.hailo_probe)
+    chosen_backend = "cpu"
+    if a.cpu:
+        chosen_backend = "cpu"
+    elif a.hailo:
+        chosen_backend = "hailo-hat"
+    elif a.target:
+        chosen_backend = a.target
+    elif a.backend:
+        chosen_backend = a.backend
+    else:
+        chosen_backend = "cpu"
+
+    c = TelemetryCollector(a.run_id, chosen_backend, a.phase, a.pid, a.path, a.cache_dir, a.detail, a.hailo_probe)
     out = sys.stdout if a.out == "-" else open(a.out, "a", buffering=1)
 
     def emit(recs):

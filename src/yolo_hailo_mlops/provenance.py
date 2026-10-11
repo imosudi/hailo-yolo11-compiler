@@ -36,6 +36,7 @@ class TelemetryRecord:
     status: Optional[str] = None  # VALID | UNAVAILABLE
     run_id: Optional[str] = None
     device: Optional[str] = None
+    inference_device: Optional[str] = None  # CPU | NPU (Hailo HAT)
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -45,6 +46,12 @@ class TelemetryRecord:
                 if d.get("value") is not None and d.get("classification") != "UNAVAILABLE"
                 else "UNAVAILABLE"
             )
+        if d.get("inference_device") is None:
+            b = str(d.get("backend") or "").lower()
+            if b in ("hailo", "hailo-hat", "npu", "hailo8l", "hailo-8l"):
+                d["inference_device"] = "NPU (Hailo HAT)"
+            else:
+                d["inference_device"] = "CPU"
         return d
 
 

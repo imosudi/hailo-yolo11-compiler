@@ -226,6 +226,7 @@ class LiveDeploymentPipeline:
                     "fps": current_fps,
                     "infer_latency_ms": infer_ms,
                     "backend_name": self.engine.backend_name,
+                    "inference_device": "NPU (Hailo HAT)" if self.engine.is_hardware_accelerated else "CPU",
                     "num_detections": len(detections),
                     "source_name": packet.source_name,
                     "frame_id": packet.frame_id,

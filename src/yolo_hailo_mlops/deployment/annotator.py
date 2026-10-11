@@ -99,17 +99,19 @@ class VisualAnnotator:
         fps = stats.get("fps", 0.0)
         infer_ms = stats.get("infer_latency_ms", 0.0)
         backend = stats.get("backend_name", "Hailo-8L")
+        inference_device = stats.get("inference_device", "NPU (Hailo HAT)" if "Hailo" in backend else "CPU")
         num_dets = stats.get("num_detections", 0)
         source = stats.get("source_name", "live")
 
         lines = [
-            f"Device: {backend}",
+            f"Inference: {inference_device}",
+            f"Engine: {backend}",
             f"FPS: {fps:.1f}  |  Latency: {infer_ms:.1f}ms",
             f"Source: {source}  |  Objects: {num_dets}",
         ]
 
         card_x, card_y = 12, 12
-        line_height = 22
+        line_height = 20
         card_w = 340
         card_h = len(lines) * line_height + 16
 
