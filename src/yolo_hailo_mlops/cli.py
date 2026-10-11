@@ -488,20 +488,46 @@ class PipelineRunner:
                     phase="hailo_validation",
                 )
                 if rt_report.power_watts is not None:
-                    for t in hailo_telemetry:
-                        if t.metric in ("hailo_power", "hailo_power_watts"):
-                            t.value = rt_report.power_watts
-                            t.classification = "MEASURED"
-                            t.source = "hailortcli_live_inference"
-                            t.reason = None
-                            t.status = "VALID"
-                    for t in self.manifest.telemetry:
+                    p_val = rt_report.power_watts
+                    p_class = getattr(rt_report, "power_classification", "MEASURED") or "MEASURED"
+                    p_src = getattr(rt_report, "power_source", "hailortcli run --measure-power") or "hailortcli run --measure-power"
+                    p_rsn = getattr(rt_report, "power_reason", None)
+                    p_stat = "VALID"
+                else:
+                    p_val = None
+                    p_class = "UNAVAILABLE"
+                    p_src = getattr(rt_report, "power_source", "hailortcli") or "hailortcli"
+                    p_rsn = (
+                        getattr(rt_report, "power_reason", None)
+                        or "Hailo hardware interface does not support onboard power measurement (INA sensor not present on Raspberry Pi AI HAT+)"
+                    )
+                    p_stat = "UNAVAILABLE"
+
+                for t in hailo_telemetry:
+                    if t.metric in ("hailo_power", "hailo_power_watts"):
+                        t.value = p_val
+                        t.classification = p_class
+                        t.source = p_src
+                        t.reason = p_rsn
+                        t.status = p_stat
+
+                for t in self.manifest.telemetry:
+                    if t.get("metric") in ("hailo_power", "hailo_power_watts"):
+                        t["value"] = p_val
+                        t["classification"] = p_class
+                        t["source"] = p_src
+                        t["reason"] = p_rsn
+                        t["status"] = p_stat
+
+                if "performance" in self.manifest.metrics and "telemetry" in self.manifest.metrics["performance"]:
+                    for t in self.manifest.metrics["performance"]["telemetry"]:
                         if t.get("metric") in ("hailo_power", "hailo_power_watts"):
-                            t["value"] = rt_report.power_watts
-                            t["classification"] = "MEASURED"
-                            t["source"] = "hailortcli_live_inference"
-                            t["reason"] = None
-                            t["status"] = "VALID"
+                            t["value"] = p_val
+                            t["classification"] = p_class
+                            t["source"] = p_src
+                            t["reason"] = p_rsn
+                            t["status"] = p_stat
+
                 self.manifest.record_telemetry(hailo_telemetry)
             elif rt_report.status == "NOT_EXECUTED":
                 self.sm.mark_not_executed(PhaseName.HAILO_VALIDATION, reason=rt_report.reason or "Hardware absent")

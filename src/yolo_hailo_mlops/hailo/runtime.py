@@ -23,6 +23,9 @@ class HailoRuntimeReport:
     inference_completed: bool
     latency_ms: Optional[float] = None
     power_watts: Optional[float] = None
+    power_classification: str = "UNAVAILABLE"
+    power_source: Optional[str] = None
+    power_reason: Optional[str] = None
     reason: Optional[str] = None
     input_shape: Optional[Tuple[int, ...]] = None
     output_shape: Optional[Tuple[int, ...]] = None
@@ -37,6 +40,9 @@ class HailoRuntimeReport:
             "inference_completed": self.inference_completed,
             "latency_ms": self.latency_ms,
             "power_watts": self.power_watts,
+            "power_classification": self.power_classification,
+            "power_source": self.power_source,
+            "power_reason": self.power_reason,
             "reason": self.reason,
             "input_shape": list(self.input_shape) if self.input_shape else None,
             "output_shape": list(self.output_shape) if self.output_shape else None,
@@ -145,6 +151,10 @@ class HailoRuntimeValidator:
                                 network_activated=True,
                                 inference_completed=True,
                                 latency_ms=latency_ms,
+                                power_watts=None,
+                                power_classification="UNAVAILABLE",
+                                power_source="hailo_platform",
+                                power_reason="Hailo Python runtime interface does not expose direct power measurement without dedicated hardware sensor",
                                 input_shape=input_data.shape,
                                 output_shape=out_shape,
                             )
@@ -188,9 +198,14 @@ class HailoRuntimeValidator:
                 if fps_val and fps_val > 0:
                     latency_ms = round(1000.0 / fps_val, 3)
 
-                # Fallback to nominal 1.5W if hardware has no onboard INA (e.g. Raspberry Pi AI HAT+)
-                if power_val is None:
-                    power_val = 1.5
+                if power_val is not None:
+                    power_classification = "MEASURED"
+                    power_source = "hailortcli run --measure-power"
+                    power_reason = None
+                else:
+                    power_classification = "UNAVAILABLE"
+                    power_source = "hailortcli"
+                    power_reason = "Hailo hardware interface does not support onboard power measurement (INA sensor not present on Raspberry Pi AI HAT+)"
 
                 return HailoRuntimeReport(
                     executed=True,
@@ -201,6 +216,9 @@ class HailoRuntimeValidator:
                     inference_completed=True,
                     latency_ms=latency_ms,
                     power_watts=power_val,
+                    power_classification=power_classification,
+                    power_source=power_source,
+                    power_reason=power_reason,
                     input_shape=(1, 640, 640, 3),
                     output_shape=(1, 80, 80, 64),
                 )

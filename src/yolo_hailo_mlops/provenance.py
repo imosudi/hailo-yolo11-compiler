@@ -975,107 +975,12 @@ def read_rpi_pmic_power() -> Tuple[Optional[float], Optional[float], Dict[str, f
 
 
 def measure_hailo_power() -> Tuple[Optional[float], str, str, Optional[str]]:
-    """Attempt physical or estimated power measurement from Hailo accelerator.
+    """Attempt direct physical power measurement from Hailo accelerator.
 
     Returns:
         (power_in_watts, classification, source, reason)
     """
-    hailortcli_bin = which("hailortcli")
-
-    if hailortcli_bin:
-        # 1. Try standalone measure-power command
-        try:
-            proc = subprocess.run(
-                [hailortcli_bin, "measure-power", "--duration", "1"],
-                capture_output=True,
-                text=True,
-                timeout=4,
-            )
-            combined = f"{proc.stdout} {proc.stderr}"
-            if proc.returncode == 0:
-                m = re.search(
-                    r"(?:average|Average|\(average\)|Power|power)[^0-9]*([0-9]+\.[0-9]+)\s*W",
-                    proc.stdout,
-                )
-                if not m:
-                    m = re.search(r"([0-9]+\.[0-9]+)\s*W", proc.stdout)
-                if m:
-                    return round(float(m.group(1)), 3), "MEASURED", "hailortcli measure-power", None
-
-            if (
-                "unsupported" in combined.lower()
-                or "unsupported_opcode" in combined.lower()
-                or "unsupported_device" in combined.lower()
-            ):
-                return (
-                    1.5,
-                    "ESTIMATED",
-                    "hailo8l_datasheet",
-                    "Raspberry Pi AI HAT+ Hailo-8L omits onboard INA power sensor; nominal active power estimated at 1.5W.",
-                )
-        except Exception:
-            pass
-
-        # 2. Check if a compiled HEF exists to test live power measurement under inference
-        canonical_hef = Path("artifacts/hailo/model.hef")
-        if canonical_hef.is_file():
-            try:
-                proc = subprocess.run(
-                    [
-                        hailortcli_bin,
-                        "run",
-                        str(canonical_hef),
-                        "--frames-count",
-                        "20",
-                        "--measure-power",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                combined = f"{proc.stdout} {proc.stderr}"
-                if proc.returncode == 0:
-                    m = re.search(
-                        r"(?:average|Average|\(average\))\s*=\s*([0-9.]+)\s*W",
-                        proc.stdout,
-                    )
-                    if not m:
-                        m = re.search(r"([0-9]+\.[0-9]+)\s*W", proc.stdout)
-                    if m:
-                        return (
-                            round(float(m.group(1)), 3),
-                            "MEASURED",
-                            "hailortcli run --measure-power",
-                            None,
-                        )
-                if (
-                    "unsupported" in combined.lower()
-                    or "unsupported_opcode" in combined.lower()
-                ):
-                    return (
-                        1.5,
-                        "ESTIMATED",
-                        "hailo8l_datasheet",
-                        "Raspberry Pi AI HAT+ Hailo-8L omits onboard INA power sensor; nominal active power estimated at 1.5W.",
-                    )
-            except Exception:
-                pass
-
-    # 3. If Hailo hardware device file exists (/dev/hailo0)
-    if os.path.exists("/dev/hailo0"):
-        return (
-            1.5,
-            "ESTIMATED",
-            "hailo8l_datasheet",
-            "Physical Hailo-8L accelerator connected; board omits INA current monitor; nominal power reported.",
-        )
-
-    return (
-        None,
-        "UNAVAILABLE",
-        "hailortcli",
-        "Hailo hardware power telemetry not exposed or hardware not connected",
-    )
+    return read_hailo_power_watts()
 
 
 def get_environment_info() -> Dict[str, Any]:
