@@ -264,3 +264,53 @@ def test_opencv_camera_all_fail_raises_error() -> None:
                 OpenCVCameraSource(device_index=0)
             assert exc_info.value.code == "E-DEPLOY-CAM-002"
 
+
+def test_libcamera_stream_source() -> None:
+    """Verify that LibcameraStreamSource decodes YUV420 byte stream from rpicam-vid."""
+    from yolo_hailo_mlops.deployment.sources import LibcameraStreamSource
+
+    w, h = 640, 480
+    yuv_bytes = np.zeros((h * 3 // 2, w), dtype=np.uint8).tobytes()
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout.read.side_effect = [yuv_bytes, yuv_bytes, b""]
+
+    with patch("shutil.which", return_value="/usr/bin/rpicam-vid"):
+        with patch("subprocess.Popen", return_value=mock_proc):
+            source = LibcameraStreamSource(camera_num=0, target_resolution=(w, h))
+            assert source.source_type == "camera"
+            assert source.resolution == (w, h)
+
+            # First frame comes from cached packet
+            packet = source.read_frame()
+            assert packet is not None
+            assert packet.frame.shape == (h, w, 3)
+            assert packet.source_name == "libcamera_0"
+
+            source.release()
+            mock_proc.terminate.assert_called()
+
+
+def test_picamera2_fallback_to_libcamera() -> None:
+    """Verify Picamera2Source uses native rpicam-vid stream when picamera2 module is missing."""
+    from yolo_hailo_mlops.deployment.sources import Picamera2Source
+
+    w, h = 640, 480
+    yuv_bytes = np.zeros((h * 3 // 2, w), dtype=np.uint8).tobytes()
+
+    mock_proc = MagicMock()
+    mock_proc.poll.return_value = None
+    mock_proc.stdout.read.side_effect = [yuv_bytes, yuv_bytes, b""]
+
+    with patch("yolo_hailo_mlops.deployment.sources.try_import_picamera2", return_value=None):
+        with patch("shutil.which", return_value="/usr/bin/rpicam-vid"):
+            with patch("subprocess.Popen", return_value=mock_proc):
+                source = Picamera2Source(camera_num=0, target_resolution=(w, h))
+                assert source.source_type == "camera"
+                packet = source.read_frame()
+                assert packet is not None
+                assert packet.source_name == "libcamera_0"
+                source.release()
+
+

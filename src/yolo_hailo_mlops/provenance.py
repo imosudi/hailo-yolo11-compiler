@@ -12,6 +12,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
+import shutil
 from shutil import which
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -157,15 +158,18 @@ def get_dependency_versions() -> Dict[str, Any]:
         except ImportError:
             pass
 
-    # Picamera2 check (virtualenv or system dist-packages)
-    picam2_info = {"version": None, "status": "unavailable", "reason": "python3-picamera2 not installed"}
+    # Picamera2 / native libcamera check (virtualenv, system dist-packages, or rpicam CLI)
+    picam2_info = {"version": None, "status": "unavailable", "reason": "Neither picamera2 nor rpicam-apps installed"}
     try:
         from yolo_hailo_mlops.deployment.sources import try_import_picamera2
         picam2_cls = try_import_picamera2()
         if picam2_cls is not None:
-            picam2_info = {"version": "available", "status": "available"}
+            picam2_info = {"version": "picamera2", "status": "available"}
+        elif shutil.which("rpicam-vid") or shutil.which("libcamera-vid"):
+            picam2_info = {"version": "rpicam-vid (native libcamera)", "status": "available"}
     except Exception:
-        pass
+        if shutil.which("rpicam-vid") or shutil.which("libcamera-vid"):
+            picam2_info = {"version": "rpicam-vid (native libcamera)", "status": "available"}
 
     return {
         "python": sys.version.split()[0],

@@ -150,11 +150,11 @@ class PipelineRunner:
 
         picam_info = deps.get("picamera2", {})
         picam_st = status_map.get(picam_info.get("status"), "NOT AVAILABLE")
-        picam_desc = (
-            "Available (Picamera2)"
-            if picam_info.get("status") == "available"
-            else "Not installed (Run 'sudo apt install -y python3-picamera2' or use OpenCV camera)"
-        )
+        if picam_info.get("status") == "available":
+            ver = picam_info.get("version") or "Available"
+            picam_desc = f"Available ({ver})"
+        else:
+            picam_desc = "Not installed (Run 'sudo apt install -y python3-picamera2 libcamera-apps' or use OpenCV camera)"
         print(f"  Picamera2 (RPi CSI):[{picam_st:<13}] {picam_desc}")
 
         v4l_devices = list(Path("/dev").glob("video*"))

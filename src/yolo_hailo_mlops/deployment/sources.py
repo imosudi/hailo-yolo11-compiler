@@ -139,10 +139,25 @@ class OpenCVCameraSource(BaseFrameSource):
                 glob.glob("/dev/video*"),
                 key=lambda p: int(p.replace("/dev/video", "")) if p.replace("/dev/video", "").isdigit() else 999,
             )
+            # Filter out known Raspberry Pi internal ISP, codec, and hardware accelerator nodes
+            # to avoid blocking select() timeouts
+            IGNORED_DRIVERS = ("pisp", "bcm2835", "codec", "isp", "unicam", "rpivid", "m2m", "cfe")
+            valid_candidates = []
             for cand_path in dev_paths:
                 cand_idx = int(cand_path.replace("/dev/video", "")) if cand_path.replace("/dev/video", "").isdigit() else None
                 if cand_idx is None or cand_idx == 0:
                     continue
+                sys_name_path = Path(f"/sys/class/video4linux/video{cand_idx}/name")
+                if sys_name_path.is_file():
+                    try:
+                        name_str = sys_name_path.read_text(errors="ignore").lower()
+                        if any(ign in name_str for ign in IGNORED_DRIVERS):
+                            continue
+                    except Exception:
+                        pass
+                valid_candidates.append(cand_idx)
+
+            for cand_idx in valid_candidates:
                 test_cap = cv2.VideoCapture(cand_idx, cv2.CAP_V4L2)
                 if not test_cap.isOpened():
                     test_cap = cv2.VideoCapture(cand_idx)
@@ -161,7 +176,7 @@ class OpenCVCameraSource(BaseFrameSource):
                         self._width = int(f.shape[1])
                         self._height = int(f.shape[0])
                         can_capture = True
-                        print(f"[INFO] Auto-detected functional camera capture stream on /dev/video{cand_idx} (index 0 was non-streaming node).")
+                        print(f"[INFO] Auto-detected functional USB camera capture stream on /dev/video{cand_idx} (index 0 was non-streaming node).")
                         break
                     test_cap.release()
 
@@ -289,8 +304,122 @@ def try_import_picamera2() -> Optional[Any]:
     return None
 
 
+class LibcameraStreamSource(BaseFrameSource):
+    """Raspberry Pi CSI Camera / AI Camera (Sony IMX500) frame ingestion via rpicam-vid / libcamera-vid."""
+
+    def __init__(
+        self,
+        camera_num: int = 0,
+        target_resolution: Optional[Tuple[int, int]] = None,
+        target_fps: Optional[float] = None,
+    ) -> None:
+        self.camera_num = camera_num
+        self._width = target_resolution[0] if target_resolution else 640
+        self._height = target_resolution[1] if target_resolution else 480
+        self._fps = target_fps or 30.0
+        self._frame_count = 0
+        self._frame_bytes = (self._width * self._height * 3) // 2  # YUV420 format
+        self._cached_first_frame: Optional[np.ndarray] = None
+
+        rpicam_bin = shutil.which("rpicam-vid") or shutil.which("libcamera-vid")
+        if not rpicam_bin:
+            raise DeploymentError(
+                "Neither 'rpicam-vid' nor 'libcamera-vid' binary found on system.",
+                code="E-DEPLOY-LIBCAM-001",
+                remediation="Install libcamera-apps with 'sudo apt-get install -y libcamera-apps' or './scripts/bootstrap.sh'.",
+            )
+
+        cmd = [
+            rpicam_bin,
+            "-t", "0",
+            "--camera", str(self.camera_num),
+            "--width", str(self._width),
+            "--height", str(self._height),
+            "--framerate", str(int(self._fps)),
+            "--codec", "yuv420",
+            "--nopreview",
+            "-o", "-",
+        ]
+
+        try:
+            self.process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=self._frame_bytes * 2,
+            )
+        except Exception as e:
+            raise DeploymentError(
+                f"Failed to start libcamera capture process ({rpicam_bin}): {e}",
+                code="E-DEPLOY-LIBCAM-002",
+            ) from e
+
+        # Read first frame to verify hardware pipeline is delivering frames
+        packet = self.read_frame()
+        if packet is None:
+            self.release()
+            raise DeploymentError(
+                "Raspberry Pi Camera (libcamera) started but produced no frame data.",
+                code="E-DEPLOY-LIBCAM-003",
+                remediation="Ensure camera ribbon cable is firmly seated and run 'rpicam-hello' to test sensor.",
+            )
+        self._cached_first_frame = packet.frame
+
+    @property
+    def source_type(self) -> str:
+        return "camera"
+
+    @property
+    def fps(self) -> float:
+        return self._fps
+
+    @property
+    def resolution(self) -> Tuple[int, int]:
+        return (self._width, self._height)
+
+    @property
+    def total_frames(self) -> Optional[int]:
+        return None
+
+    def read_frame(self) -> Optional[FramePacket]:
+        if not hasattr(self, "process") or self.process is None or self.process.poll() is not None:
+            return None
+
+        if self._cached_first_frame is not None:
+            frame_bgr = self._cached_first_frame
+            self._cached_first_frame = None
+        else:
+            assert self.process.stdout is not None
+            raw = self.process.stdout.read(self._frame_bytes)
+            if len(raw) < self._frame_bytes:
+                return None
+            yuv = np.frombuffer(raw, dtype=np.uint8).reshape((self._height * 3 // 2, self._width))
+            frame_bgr = cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR_I420)
+
+        self._frame_count += 1
+        return FramePacket(
+            frame_id=self._frame_count,
+            frame=frame_bgr,
+            timestamp=time.perf_counter(),
+            source_name=f"libcamera_{self.camera_num}",
+            is_last=False,
+        )
+
+    def release(self) -> None:
+        if hasattr(self, "process") and self.process is not None:
+            try:
+                self.process.terminate()
+                self.process.wait(timeout=1.0)
+            except Exception:
+                try:
+                    self.process.kill()
+                except Exception:
+                    pass
+            self.process = None
+
+
 class Picamera2Source(BaseFrameSource):
-    """Raspberry Pi CSI Camera Module via Picamera2 library."""
+    """Raspberry Pi CSI Camera Module / AI Camera (Sony IMX500) via Picamera2 or native libcamera stream."""
 
     def __init__(
         self,
@@ -304,63 +433,63 @@ class Picamera2Source(BaseFrameSource):
         self._width = target_resolution[0] if target_resolution else 640
         self._height = target_resolution[1] if target_resolution else 480
         self._fps = target_fps or 30.0
+        self._fallback_libcam: Optional[LibcameraStreamSource] = None
         self._fallback_opencv: Optional[OpenCVCameraSource] = None
         self.picam2 = None
 
+        # 1. Attempt Picamera2 Python library
         picam2_cls = try_import_picamera2()
-        if picam2_cls is None:
-            if fallback_to_opencv:
-                print(
-                    f"[NOTICE] Picamera2 is not installed. Attempting fallback to OpenCV camera (/dev/video{camera_num})...\n"
-                    "         (To enable native Raspberry Pi CSI Camera Module, run './scripts/bootstrap.sh' or 'sudo apt install -y python3-picamera2')"
+        if picam2_cls is not None:
+            try:
+                self.picam2 = picam2_cls(camera_num=self.camera_num)
+                config = self.picam2.create_preview_configuration(
+                    main={"size": (self._width, self._height), "format": "BGR888"}
                 )
-                try:
-                    self._fallback_opencv = OpenCVCameraSource(
-                        device_index=camera_num,
-                        target_fps=target_fps,
-                        target_resolution=target_resolution,
-                    )
-                    return
-                except DeploymentError as e:
-                    raise DeploymentError(
-                        f"Picamera2 is not installed, and fallback OpenCV camera failed: {e.message}",
-                        code="E-DEPLOY-PICAM-001",
-                        remediation="Run './scripts/bootstrap.sh' or 'sudo apt-get install -y python3-picamera2', or connect a functional USB camera.",
-                    ) from e
+                self.picam2.configure(config)
+                self.picam2.start()
+                return
+            except Exception as e:
+                print(f"[NOTICE] Picamera2 device initialization error ({e}). Attempting libcamera stream fallback...")
 
-            raise DeploymentError(
-                "Picamera2 is not installed. Install with 'sudo apt install -y python3-picamera2' or use OpenCV camera.",
-                code="E-DEPLOY-PICAM-001",
-                remediation="Run './scripts/bootstrap.sh' or 'sudo apt-get install -y python3-picamera2', or use '--camera-type opencv'.",
-            )
-
-        try:
-            self.picam2 = picam2_cls(camera_num=self.camera_num)
-            config = self.picam2.create_preview_configuration(
-                main={"size": (self._width, self._height), "format": "BGR888"}
-            )
-            self.picam2.configure(config)
-            self.picam2.start()
-        except Exception as e:
-            if fallback_to_opencv:
-                print(
-                    f"[NOTICE] Picamera2 hardware device failed ({e}). Attempting fallback to OpenCV camera (/dev/video{camera_num})."
+        # 2. Attempt native Raspberry Pi libcamera stream (rpicam-vid / libcamera-vid)
+        # Directly supports Raspberry Pi AI Camera (Sony IMX500), Camera Module 3, and CSI sensors
+        if shutil.which("rpicam-vid") or shutil.which("libcamera-vid"):
+            try:
+                print(f"[INFO] Seamlessly utilizing native Raspberry Pi Camera stream (rpicam-vid/libcamera) for camera {camera_num}...")
+                self._fallback_libcam = LibcameraStreamSource(
+                    camera_num=self.camera_num,
+                    target_resolution=(self._width, self._height),
+                    target_fps=self._fps,
                 )
-                try:
-                    self._fallback_opencv = OpenCVCameraSource(
-                        device_index=camera_num,
-                        target_fps=target_fps,
-                        target_resolution=target_resolution,
-                    )
-                    return
-                except Exception:
-                    pass
+                return
+            except Exception as e:
+                print(f"[NOTICE] Native libcamera stream error ({e}).")
 
-            raise DeploymentError(
-                f"Failed to start Picamera2 hardware device: {e}",
-                code="E-DEPLOY-PICAM-002",
-                remediation="Verify ribbon cable connection and run 'rpicam-hello' to test hardware detection, or use '--camera-type opencv'.",
-            ) from e
+        # 3. Fallback to OpenCV if permitted
+        if fallback_to_opencv:
+            print(
+                f"[NOTICE] Picamera2/rpicam-vid not available. Attempting fallback to OpenCV camera (/dev/video{camera_num})...\n"
+                "         (To enable native Raspberry Pi CSI Camera Module, run './scripts/bootstrap.sh' or 'sudo apt install -y python3-picamera2 libcamera-apps')"
+            )
+            try:
+                self._fallback_opencv = OpenCVCameraSource(
+                    device_index=camera_num,
+                    target_fps=target_fps,
+                    target_resolution=target_resolution,
+                )
+                return
+            except DeploymentError as e:
+                raise DeploymentError(
+                    f"CSI camera stream unavailable, and fallback OpenCV camera failed: {e.message}",
+                    code="E-DEPLOY-PICAM-001",
+                    remediation="Install libcamera-apps / python3-picamera2 with './scripts/bootstrap.sh' or 'sudo apt-get install -y python3-picamera2 libcamera-apps'.",
+                ) from e
+
+        raise DeploymentError(
+            "Raspberry Pi CSI camera requires Picamera2 or rpicam-apps ('rpicam-vid'). Install via './scripts/bootstrap.sh' or 'sudo apt install -y python3-picamera2 libcamera-apps'.",
+            code="E-DEPLOY-PICAM-001",
+            remediation="Run './scripts/bootstrap.sh' or 'sudo apt-get install -y python3-picamera2 libcamera-apps', or use '--camera-type opencv'.",
+        )
 
     @property
     def source_type(self) -> str:
@@ -368,12 +497,16 @@ class Picamera2Source(BaseFrameSource):
 
     @property
     def fps(self) -> float:
+        if self._fallback_libcam is not None:
+            return self._fallback_libcam.fps
         if self._fallback_opencv is not None:
             return self._fallback_opencv.fps
         return self._fps
 
     @property
     def resolution(self) -> Tuple[int, int]:
+        if self._fallback_libcam is not None:
+            return self._fallback_libcam.resolution
         if self._fallback_opencv is not None:
             return self._fallback_opencv.resolution
         return (self._width, self._height)
@@ -383,6 +516,8 @@ class Picamera2Source(BaseFrameSource):
         return None
 
     def read_frame(self) -> Optional[FramePacket]:
+        if self._fallback_libcam is not None:
+            return self._fallback_libcam.read_frame()
         if self._fallback_opencv is not None:
             return self._fallback_opencv.read_frame()
 
@@ -402,6 +537,9 @@ class Picamera2Source(BaseFrameSource):
             return None
 
     def release(self) -> None:
+        if self._fallback_libcam is not None:
+            self._fallback_libcam.release()
+            self._fallback_libcam = None
         if self._fallback_opencv is not None:
             self._fallback_opencv.release()
             self._fallback_opencv = None
@@ -597,18 +735,21 @@ def create_frame_source(
             except ValueError:
                 cam_idx = str_src  # type: ignore
 
-        if camera_type == "picamera2":
+        if camera_type in ("picamera2", "libcamera", "rpicam"):
             return Picamera2Source(camera_num=int(cam_idx), target_resolution=target_resolution, target_fps=target_fps)
         elif camera_type == "opencv":
             return OpenCVCameraSource(device_index=cam_idx, target_fps=target_fps, target_resolution=target_resolution)
         else:
-            # Auto: Try Picamera2 on Raspberry Pi if available, fallback to OpenCV
-            picam2_cls = try_import_picamera2()
-            if picam2_cls is not None:
-                try:
-                    return Picamera2Source(camera_num=int(cam_idx), target_resolution=target_resolution, target_fps=target_fps)
-                except Exception:
-                    pass
+            # Auto: Try Picamera2 / native libcamera on Raspberry Pi first without forcing OpenCV fallback
+            try:
+                return Picamera2Source(
+                    camera_num=int(cam_idx),
+                    target_resolution=target_resolution,
+                    target_fps=target_fps,
+                    fallback_to_opencv=False,
+                )
+            except Exception:
+                pass
             return OpenCVCameraSource(device_index=cam_idx, target_fps=target_fps, target_resolution=target_resolution)
 
     # 2. File or Directory identification
