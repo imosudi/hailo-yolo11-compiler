@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import datetime
+import json
 import os
 import sys
+import threading
 import time
 from collections import deque
 from pathlib import Path
@@ -51,6 +54,27 @@ if "QT_QPA_PLATFORM" not in os.environ and (os.environ.get("WAYLAND_DISPLAY") or
     os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 
+def _load_telemetry_collector_cls():
+    """Dynamically discover and load TelemetryCollector from repo or sys.path."""
+    try:
+        from telemetry_collector import TelemetryCollector
+        return TelemetryCollector
+    except ImportError:
+        curr = Path(__file__).resolve().parent
+        for _ in range(4):
+            candidate = curr / "telemetry_collector.py"
+            if candidate.is_file():
+                if str(curr) not in sys.path:
+                    sys.path.insert(0, str(curr))
+                try:
+                    from telemetry_collector import TelemetryCollector
+                    return TelemetryCollector
+                except ImportError:
+                    pass
+            curr = curr.parent
+        return None
+
+
 class LiveDeploymentPipeline:
     """Manages end-to-end ingestion, inference, postprocessing, annotation, and display/sink."""
 
@@ -71,6 +95,9 @@ class LiveDeploymentPipeline:
         num_classes: int = 80,
         root_artifacts: Optional[Union[str, Path]] = None,
         hud_enabled: bool = True,
+        telemetry_enabled: bool = True,
+        telemetry_path: Optional[Union[str, Path]] = "telemetry.jsonl",
+        telemetry_interval: float = 1.0,
     ) -> None:
         self.source_desc = source
         self.model_path = model_path
@@ -86,6 +113,9 @@ class LiveDeploymentPipeline:
         self.num_classes = num_classes
         self.root_artifacts = root_artifacts
         self.hud_enabled = hud_enabled
+        self.telemetry_enabled = telemetry_enabled
+        self.telemetry_path = Path(telemetry_path) if telemetry_path else Path("telemetry.jsonl")
+        self.telemetry_interval = max(0.2, float(telemetry_interval))
 
         # Auto-detect display availability if not explicitly specified
         if show is None:
@@ -150,6 +180,81 @@ class LiveDeploymentPipeline:
 
         fps_history = deque(maxlen=30)
         infer_latency_history = deque(maxlen=50)
+
+        # Determine acceleration mode and device tag for telemetry
+        backend_tag = "hailo-hat" if self.engine.is_hardware_accelerated else "cpu"
+        inference_device = "NPU (Hailo HAT)" if self.engine.is_hardware_accelerated else "CPU"
+
+        collector_obj = None
+        telemetry_worker = None
+        telemetry_stop_event = threading.Event()
+        latest_perf_lock = threading.Lock()
+        latest_perf_data = {"fps": 0.0, "latency_ms": 0.0, "total_frames": 0}
+
+        if self.telemetry_enabled:
+            CollectorCls = _load_telemetry_collector_cls()
+            if CollectorCls:
+                try:
+                    if self.telemetry_path.parent:
+                        ensure_dir(self.telemetry_path.parent)
+                    collector_obj = CollectorCls(
+                        backend=backend_tag,
+                        phase="live_deployment",
+                        path=str(self.root_artifacts or "."),
+                    )
+                    init_records = collector_obj.static_samples() + collector_obj.begin_phase("live_deployment")
+                    with open(self.telemetry_path, "a", encoding="utf-8") as tf:
+                        for rec in init_records:
+                            tf.write(json.dumps(rec) + "\n")
+                        tf.flush()
+
+                    def _telemetry_loop():
+                        while not telemetry_stop_event.is_set():
+                            if telemetry_stop_event.wait(timeout=self.telemetry_interval):
+                                break
+                            try:
+                                samples = collector_obj.sample()
+                                with latest_perf_lock:
+                                    cur_fps = latest_perf_data["fps"]
+                                    cur_lat = latest_perf_data["latency_ms"]
+                                    cur_frames = latest_perf_data["total_frames"]
+
+                                now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                                now_ns = time.monotonic_ns()
+                                for metric_name, metric_val, metric_unit in [
+                                    ("deployment_fps", cur_fps, "FPS"),
+                                    ("deployment_infer_latency_ms", cur_lat, "ms"),
+                                    ("deployment_frames_total", cur_frames, "count"),
+                                ]:
+                                    samples.append({
+                                        "metric": metric_name,
+                                        "value": metric_val,
+                                        "unit": metric_unit,
+                                        "classification": "MEASURED",
+                                        "source": "LiveDeploymentPipeline",
+                                        "timestamp": now_iso,
+                                        "monotonic_ns": now_ns,
+                                        "reason": None,
+                                        "backend": collector_obj.backend,
+                                        "inference_device": collector_obj.inference_device,
+                                        "phase": collector_obj.phase,
+                                        "status": "VALID",
+                                        "run_id": collector_obj.run_id,
+                                        "device": collector_obj.device,
+                                    })
+
+                                with open(self.telemetry_path, "a", encoding="utf-8") as tf:
+                                    for rec in samples:
+                                        tf.write(json.dumps(rec) + "\n")
+                                    tf.flush()
+                            except Exception:
+                                pass
+
+                    telemetry_worker = threading.Thread(target=_telemetry_loop, daemon=True, name="TelemetryCollector")
+                    telemetry_worker.start()
+                    print(f"  Live Telemetry:       RECORDING -> {self.telemetry_path} (Device: {inference_device})")
+                except Exception as e:
+                    print(f"  [WARNING] Telemetry collector initialization failed: {e}")
 
         total_frames = 0
         total_detections_count = 0
@@ -226,11 +331,17 @@ class LiveDeploymentPipeline:
                     "fps": current_fps,
                     "infer_latency_ms": infer_ms,
                     "backend_name": self.engine.backend_name,
-                    "inference_device": "NPU (Hailo HAT)" if self.engine.is_hardware_accelerated else "CPU",
+                    "inference_device": inference_device,
                     "num_detections": len(detections),
                     "source_name": packet.source_name,
                     "frame_id": packet.frame_id,
                 }
+
+                if collector_obj:
+                    with latest_perf_lock:
+                        latest_perf_data["fps"] = round(current_fps, 2)
+                        latest_perf_data["latency_ms"] = round(infer_ms, 2)
+                        latest_perf_data["total_frames"] = total_frames
 
                 # 5. Visual Annotation
                 annotated = self.annotator.annotate(frame_bgr, detections, perf_stats)
@@ -296,6 +407,21 @@ class LiveDeploymentPipeline:
             print("\n[INFO] Deployment interrupted by user (SIGINT).")
 
         finally:
+            # Stop telemetry background collector if active
+            if telemetry_worker and collector_obj:
+                telemetry_stop_event.set()
+                telemetry_worker.join(timeout=2.0)
+                try:
+                    end_records = collector_obj.end_phase()
+                    with open(self.telemetry_path, "a", encoding="utf-8") as tf:
+                        for rec in end_records:
+                            tf.write(json.dumps(rec) + "\n")
+                        tf.flush()
+                    print(f"\n[TELEMETRY] Live telemetry metrics recorded: {self.telemetry_path}")
+                    print(f"            Inference Accelerator Tag: {collector_obj.inference_device} ({collector_obj.backend})")
+                except Exception as e:
+                    print(f"\n[WARNING] Telemetry finalization failed: {e}")
+
             # Clean shutdown of devices and windows
             t_total_elapsed = time.perf_counter() - t_start
             if self._video_writer:

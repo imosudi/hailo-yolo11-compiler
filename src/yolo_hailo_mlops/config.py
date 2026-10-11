@@ -125,6 +125,9 @@ class DeploymentConfig:
     camera_type: str = "auto"
     fps_limit: Optional[float] = None
     max_frames: Optional[int] = None
+    telemetry_enabled: bool = True
+    telemetry_path: str = "telemetry.jsonl"
+    telemetry_interval: float = 1.0
 
 
 @dataclass
@@ -462,6 +465,12 @@ def load_config(
             app_cfg.deployment.fps_limit = float(cli_overrides["fps_limit"])
         if "max_frames" in cli_overrides and cli_overrides["max_frames"] is not None:
             app_cfg.deployment.max_frames = int(cli_overrides["max_frames"])
+        if "telemetry_enabled" in cli_overrides and cli_overrides["telemetry_enabled"] is not None:
+            app_cfg.deployment.telemetry_enabled = bool(cli_overrides["telemetry_enabled"])
+        if "telemetry_path" in cli_overrides and cli_overrides["telemetry_path"]:
+            app_cfg.deployment.telemetry_path = str(cli_overrides["telemetry_path"])
+        if "telemetry_interval" in cli_overrides and cli_overrides["telemetry_interval"] is not None:
+            app_cfg.deployment.telemetry_interval = float(cli_overrides["telemetry_interval"])
 
     app_cfg.validate()
     return app_cfg

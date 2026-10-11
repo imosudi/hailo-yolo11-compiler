@@ -444,6 +444,65 @@ def test_hailo_engine_successful_initialization_with_hef_stream_infos(tmp_path: 
             engine.close()
 
 
+def test_pipeline_telemetry_device_tag_injection(tmp_path: Path) -> None:
+    """Verify LiveDeploymentPipeline records telemetry with CPU vs NPU tags in telemetry.jsonl."""
+    import json
+    from yolo_hailo_mlops.deployment.pipeline import LiveDeploymentPipeline
+
+    # Prepare dummy image
+    img_dir = tmp_path / "images"
+    img_dir.mkdir()
+    dummy_img_path = img_dir / "test.jpg"
+    cv2.imwrite(str(dummy_img_path), np.zeros((100, 100, 3), dtype=np.uint8))
+
+    telemetry_cpu_file = tmp_path / "telemetry_cpu.jsonl"
+
+    # 1. CPU Run
+    pipeline_cpu = LiveDeploymentPipeline(
+        source=img_dir,
+        backend="cpu",
+        show=False,
+        max_frames=1,
+        telemetry_enabled=True,
+        telemetry_path=telemetry_cpu_file,
+    )
+    res_cpu = pipeline_cpu.run()
+    assert res_cpu["frames_processed"] == 1
+    assert telemetry_cpu_file.is_file()
+
+    with open(telemetry_cpu_file, "r") as f:
+        cpu_lines = [json.loads(line) for line in f if line.strip()]
+    assert len(cpu_lines) > 0
+    for r in cpu_lines:
+        assert r["inference_device"] == "CPU"
+        assert r["backend"] in ("cpu", "onnx", "pytorch")
+
+    # 2. Hailo / NPU Mock Run
+    telemetry_hailo_file = tmp_path / "telemetry_hailo.jsonl"
+    pipeline_hailo = LiveDeploymentPipeline(
+        source=img_dir,
+        backend="cpu",
+        show=False,
+        max_frames=1,
+        telemetry_enabled=True,
+        telemetry_path=telemetry_hailo_file,
+    )
+    from unittest.mock import PropertyMock
+    with patch.object(type(pipeline_hailo.engine), "is_hardware_accelerated", new_callable=PropertyMock, return_value=True):
+        res_hailo = pipeline_hailo.run()
+
+    assert res_hailo["frames_processed"] == 1
+    assert telemetry_hailo_file.is_file()
+
+    with open(telemetry_hailo_file, "r") as f:
+        hailo_lines = [json.loads(line) for line in f if line.strip()]
+    assert len(hailo_lines) > 0
+    for r in hailo_lines:
+        assert r["inference_device"] == "NPU (Hailo HAT)"
+        assert r["backend"] == "hailo-hat"
+
+
+
 
 
 

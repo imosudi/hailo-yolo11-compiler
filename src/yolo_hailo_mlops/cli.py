@@ -672,6 +672,9 @@ class PipelineRunner:
             class_names=class_names,
             num_classes=num_classes,
             root_artifacts=self.root_artifacts,
+            telemetry_enabled=self.config.deployment.telemetry_enabled,
+            telemetry_path=self.config.deployment.telemetry_path,
+            telemetry_interval=self.config.deployment.telemetry_interval,
         )
 
         res = pipeline.run()
@@ -934,6 +937,14 @@ def main() -> None:
                         help="Target FPS cap for playback or camera stream")
     parser.add_argument("--max-frames", type=int, default=None,
                         help="Maximum frames to process before terminating")
+    parser.add_argument("--telemetry", dest="telemetry", action="store_true", default=None,
+                        help="Enable continuous background hardware and performance telemetry recording")
+    parser.add_argument("--no-telemetry", dest="telemetry", action="store_false",
+                        help="Disable background telemetry recording")
+    parser.add_argument("--telemetry-path", "--telemetry-file", dest="telemetry_path", type=str, default=None,
+                        help="Path to telemetry output JSONL file (default: telemetry.jsonl)")
+    parser.add_argument("--telemetry-interval", dest="telemetry_interval", type=float, default=None,
+                        help="Telemetry sample interval in seconds (default: 1.0)")
 
     args = parser.parse_args()
 
@@ -977,6 +988,9 @@ def main() -> None:
         "camera_type": args.camera_type,
         "fps_limit": args.fps_limit,
         "max_frames": args.max_frames,
+        "telemetry_enabled": args.telemetry,
+        "telemetry_path": args.telemetry_path,
+        "telemetry_interval": args.telemetry_interval,
     }
 
     try:
