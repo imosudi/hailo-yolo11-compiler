@@ -314,3 +314,31 @@ def test_picamera2_fallback_to_libcamera() -> None:
                 source.release()
 
 
+def test_hailo_engine_fallback_when_platform_missing(tmp_path: Path) -> None:
+    """Verify create_inference_engine gracefully falls back to ONNX/PyTorch if hailo_platform is missing."""
+    from yolo_hailo_mlops.deployment.inference import ONNXInferenceEngine, create_inference_engine
+
+    # Setup dummy HEF and dummy ONNX in root artifacts
+    hef_dir = tmp_path / "hailo"
+    hef_dir.mkdir(parents=True)
+    (hef_dir / "model.hef").touch()
+
+    onnx_dir = tmp_path / "onnx"
+    onnx_dir.mkdir(parents=True)
+    dummy_onnx = onnx_dir / "model.onnx"
+    dummy_onnx.touch()
+
+    mock_env = MagicMock()
+    mock_env.has_hardware = True
+    mock_env.has_hailort = True
+
+    with patch("yolo_hailo_mlops.deployment.inference.detect_hailo_environment", return_value=mock_env):
+        with patch("yolo_hailo_mlops.deployment.inference.try_import_hailo_platform", return_value=None):
+            with patch("yolo_hailo_mlops.deployment.inference.ONNXInferenceEngine") as mock_onnx:
+                mock_onnx.return_value = MagicMock()
+                engine = create_inference_engine(backend="auto", root_artifacts=tmp_path)
+                assert engine is not None
+                mock_onnx.assert_called_once()
+
+
+

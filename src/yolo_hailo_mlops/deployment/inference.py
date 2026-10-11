@@ -48,6 +48,68 @@ class BaseInferenceEngine(ABC):
         self.close()
 
 
+def try_auto_install_hailort() -> bool:
+    """Attempt non-interactive apt installation of python3-hailort on Raspberry Pi OS."""
+    import shutil
+    import subprocess
+    import sys
+    if not sys.platform.startswith("linux") or not shutil.which("apt-get"):
+        return False
+    try:
+        res = subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=2)
+        if res.returncode == 0:
+            print("[INFO] Attempting automated installation of python3-hailort via apt...")
+            install_res = subprocess.run(
+                ["sudo", "-n", "apt-get", "install", "-y", "--no-install-recommends", "python3-hailort"],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if install_res.returncode == 0:
+                print("[SUCCESS] python3-hailort installed successfully.")
+                from yolo_hailo_mlops.provenance import ensure_system_dist_packages
+                ensure_system_dist_packages()
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def try_import_hailo_platform() -> Optional[Any]:
+    """Attempt to import hailo_platform, linking system packages or installing python3-hailort."""
+    from yolo_hailo_mlops.provenance import ensure_system_dist_packages
+    ensure_system_dist_packages()
+
+    try:
+        import hailo_platform  # type: ignore
+        return hailo_platform
+    except (ImportError, ModuleNotFoundError):
+        pass
+
+    # Try auto-installing python3-hailort via apt
+    if try_auto_install_hailort():
+        try:
+            import hailo_platform  # type: ignore
+            return hailo_platform
+        except (ImportError, ModuleNotFoundError):
+            pass
+
+    # Check for pre-built Hailo wheels in common locations
+    import glob
+    import subprocess
+    import sys
+    for pattern in ["/usr/share/hailort/*.whl", "/opt/hailo*/*.whl", "/home/*/.hailo*/*.whl"]:
+        for whl in glob.glob(pattern):
+            try:
+                subprocess.run([sys.executable, "-m", "pip", "install", whl], capture_output=True)
+                import hailo_platform  # type: ignore
+                return hailo_platform
+            except Exception:
+                pass
+
+    return None
+
+
 class HailoInferenceEngine(BaseInferenceEngine):
     """Real-time inference engine executing on physical Hailo-8L accelerator via PCIe."""
 
@@ -68,16 +130,15 @@ class HailoInferenceEngine(BaseInferenceEngine):
                 remediation="Ensure Raspberry Pi 5 AI HAT+ is seated securely and 'lspci' lists Hailo-8L.",
             )
 
-        try:
-            import hailo_platform  # type: ignore
-        except (ImportError, ModuleNotFoundError) as err:
+        hailo_mod = try_import_hailo_platform()
+        if hailo_mod is None:
             raise DeploymentError(
                 "HailoRT Python library ('hailo_platform') is required for live accelerator deployment.",
                 code="E-DEPLOY-RT-001",
-                remediation="Install HailoRT Python wheel or run inside a configured Hailo container/virtualenv.",
-            ) from err
+                remediation="Run './scripts/bootstrap.sh' or 'sudo apt install -y python3-hailort' on your Raspberry Pi 5.",
+            )
 
-        self._hailo = hailo_platform
+        self._hailo = hailo_mod
         self._target = None
         self._network_group = None
         self._activated_network = None
@@ -372,8 +433,26 @@ def create_inference_engine(
     # Auto resolution
     if ext == ".hef":
         env = detect_hailo_environment()
-        if env.has_hardware and env.has_hailort:
-            return HailoInferenceEngine(model_p)
+        if env.has_hardware:
+            try:
+                return HailoInferenceEngine(model_p)
+            except DeploymentError as e:
+                if backend != "hailo":
+                    print(f"[NOTICE] Hailo accelerator engine initialization note ({e.message}).")
+                    # Fallback to ONNX or PyTorch if available
+                    onnx_cand = root / "onnx" / "model.onnx"
+                    if onnx_cand.is_file():
+                        print(f"[INFO] Gracefully utilizing ONNX runtime engine ({onnx_cand})...")
+                        return ONNXInferenceEngine(onnx_cand)
+                    pt_cand = root / "pytorch" / "best.pt"
+                    if pt_cand.is_file():
+                        print(f"[INFO] Gracefully utilizing PyTorch CPU engine ({pt_cand})...")
+                        return PyTorchInferenceEngine(pt_cand)
+                    pt_base = Path("yolo11n.pt")
+                    if pt_base.is_file():
+                        print(f"[INFO] Gracefully utilizing base PyTorch engine ({pt_base})...")
+                        return PyTorchInferenceEngine(pt_base)
+                raise
         else:
             # Fallback to ONNX if available
             onnx_cand = root / "onnx" / "model.onnx"

@@ -74,6 +74,15 @@ if command -v apt-get &> /dev/null; then
         fi
     done
 
+    # 5. HailoRT Python library for Raspberry Pi AI HAT+ accelerator
+    if [ "${IS_RPI}" = true ] || apt-cache show python3-hailort &>/dev/null 2>&1; then
+        if ! dpkg -s python3-hailort &> /dev/null 2>&1; then
+            DEPS_TO_INSTALL+=("python3-hailort")
+        else
+            echo "Found HailoRT Python bindings: python3-hailort"
+        fi
+    fi
+
     if [ ${#DEPS_TO_INSTALL[@]} -gt 0 ]; then
         echo "Installing required system packages via apt-get: ${DEPS_TO_INSTALL[*]}..."
         run_as_root apt-get update -y && run_as_root apt-get install -y "${DEPS_TO_INSTALL[@]}" || {
