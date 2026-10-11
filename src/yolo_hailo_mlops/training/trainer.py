@@ -67,6 +67,10 @@ class YOLOTrainer:
                 remediation="Run 'pip install -e .[training]' to install training dependencies.",
             ) from e
 
+        from yolo_hailo_mlops.operations import configure_cpu_multithreading, get_optimal_cpu_threads
+        cpu_threads = get_optimal_cpu_threads(getattr(self.config, "threads", None))
+        configure_cpu_multithreading(cpu_threads)
+
         train_args: Dict[str, Any] = {
             "data": str(Path(self.config.dataset.yaml).resolve()),
             "epochs": self.config.training.epochs,
@@ -80,6 +84,7 @@ class YOLOTrainer:
             "name": "yolo_train",
             "exist_ok": True,
             "verbose": self.config.verbose,
+            "workers": cpu_threads,
         }
 
         if self.config.training.optimizer != "auto":

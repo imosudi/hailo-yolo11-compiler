@@ -62,8 +62,10 @@ def benchmark_onnx_latency(
     p = Path(onnx_path).resolve()
     try:
         import onnxruntime as ort
+        from yolo_hailo_mlops.operations import get_multithreaded_ort_session_options
 
-        sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        sess_opts = get_multithreaded_ort_session_options()
+        sess = ort.InferenceSession(str(p), sess_options=sess_opts, providers=["CPUExecutionProvider"])
         inp_name = sess.get_inputs()[0].name
         dummy = np.zeros((1, 3, imgsz, imgsz), dtype=np.float32)
 

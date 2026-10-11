@@ -98,6 +98,7 @@ class LiveDeploymentPipeline:
         telemetry_enabled: bool = True,
         telemetry_path: Optional[Union[str, Path]] = "telemetry.jsonl",
         telemetry_interval: float = 1.0,
+        threads: Optional[int] = None,
     ) -> None:
         self.source_desc = source
         self.model_path = model_path
@@ -116,6 +117,7 @@ class LiveDeploymentPipeline:
         self.telemetry_enabled = telemetry_enabled
         self.telemetry_path = Path(telemetry_path) if telemetry_path else Path("telemetry.jsonl")
         self.telemetry_interval = max(0.2, float(telemetry_interval))
+        self.threads = threads
 
         # Auto-detect display availability if not explicitly specified
         if show is None:
@@ -134,6 +136,7 @@ class LiveDeploymentPipeline:
             model_path=self.model_path,
             backend=self.backend,
             root_artifacts=self.root_artifacts,
+            threads=self.threads,
         )
 
         self.decoder = YOLODecoder(

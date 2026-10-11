@@ -92,8 +92,9 @@ def inspect_split(
     split_path: Path,
     num_classes: int,
     base_dir: Path,
+    max_workers: Optional[int] = None,
 ) -> Tuple[SplitStatistics, Dict[str, Path]]:
-    """Inspect images and labels within a split directory or text file."""
+    """Inspect images and labels within a split directory or text file using CPU multithreading."""
     stats = SplitStatistics(name=split_name)
     image_hashes: Dict[str, Path] = {}
 
@@ -122,44 +123,84 @@ def inspect_split(
     if labels_candidate.is_dir():
         label_dirs.append(labels_candidate)
 
-    for img_path in image_paths:
+    def _inspect_single_image(img_path: Path) -> Optional[Dict[str, Any]]:
         if not img_path.is_file():
-            continue
-
-        stats.num_images += 1
+            return None
 
         # Check image corruption & dimensions
+        corrupt = False
+        w, h = 0, 0
         try:
             with Image.open(img_path) as img:
                 w, h = img.size
-                stats.widths.append(w)
-                stats.heights.append(h)
         except Exception:
-            stats.corrupt_images += 1
-            continue
+            corrupt = True
 
-        # Check SHA-256 hash for deduplication
-        try:
-            img_hash = compute_sha256(img_path)
-            image_hashes[img_hash] = img_path
-        except Exception:
-            pass
+        img_hash = None
+        if not corrupt:
+            try:
+                img_hash = compute_sha256(img_path)
+            except Exception:
+                pass
 
         # Check corresponding label
         lbl_path = find_label_file(img_path, label_dirs)
+        missing_lbl = False
+        num_lbl = False
+        b_cnt = 0
+        empty_img = False
+        class_ids: List[int] = []
+
         if lbl_path is None:
-            stats.missing_labels += 1
+            missing_lbl = True
         else:
-            stats.num_labels += 1
-            valid, b_cnt, cls_ids, err = validate_yolo_label_file(lbl_path, num_classes)
+            num_lbl = True
+            valid, b_cnt_val, cls_ids, _ = validate_yolo_label_file(lbl_path, num_classes)
             if not valid:
-                stats.missing_labels += 1
+                missing_lbl = True
             else:
-                stats.num_boxes += b_cnt
+                b_cnt = b_cnt_val
                 if b_cnt == 0:
-                    stats.empty_images += 1
-                for cid in cls_ids:
-                    stats.class_counts[cid] = stats.class_counts.get(cid, 0) + 1
+                    empty_img = True
+                class_ids = cls_ids
+
+        return {
+            "path": img_path,
+            "corrupt": corrupt,
+            "w": w,
+            "h": h,
+            "hash": img_hash,
+            "missing_lbl": missing_lbl,
+            "num_lbl": num_lbl,
+            "boxes": b_cnt,
+            "empty": empty_img,
+            "class_ids": class_ids,
+        }
+
+    from yolo_hailo_mlops.operations import parallel_map
+    valid_paths = [p for p in image_paths if p.is_file()]
+    results = parallel_map(_inspect_single_image, valid_paths, max_workers=max_workers)
+
+    for item in results:
+        if not item:
+            continue
+        stats.num_images += 1
+        if item["corrupt"]:
+            stats.corrupt_images += 1
+            continue
+        stats.widths.append(item["w"])
+        stats.heights.append(item["h"])
+        if item["hash"]:
+            image_hashes[item["hash"]] = item["path"]
+        if item["missing_lbl"]:
+            stats.missing_labels += 1
+        if item["num_lbl"]:
+            stats.num_labels += 1
+        stats.num_boxes += item["boxes"]
+        if item["empty"]:
+            stats.empty_images += 1
+        for cid in item["class_ids"]:
+            stats.class_counts[cid] = stats.class_counts.get(cid, 0) + 1
 
     return stats, image_hashes
 
@@ -167,8 +208,9 @@ def inspect_split(
 class DatasetValidator:
     """Pre-flight dataset validation engine."""
 
-    def __init__(self, dataset_yaml: Union[str, Path]) -> None:
+    def __init__(self, dataset_yaml: Union[str, Path], threads: Optional[int] = None) -> None:
         self.yaml_path = Path(dataset_yaml).resolve()
+        self.threads = threads
 
     def validate(self, fail_fast: bool = True) -> DatasetValidationReport:
         """Execute full dataset pre-flight validation."""
@@ -253,17 +295,17 @@ class DatasetValidator:
 
         # Inspect train split
         train_path = Path(str(train_path_raw))
-        train_stats, train_hashes = inspect_split("train", train_path, num_classes, base_dir)
+        train_stats, train_hashes = inspect_split("train", train_path, num_classes, base_dir, max_workers=self.threads)
 
         # Inspect val split
         val_path = Path(str(val_path_raw))
-        val_stats, val_hashes = inspect_split("val", val_path, num_classes, base_dir)
+        val_stats, val_hashes = inspect_split("val", val_path, num_classes, base_dir, max_workers=self.threads)
 
         # Inspect optional test split
         test_stats = None
         if test_path_raw:
             test_path = Path(str(test_path_raw))
-            test_stats, _ = inspect_split("test", test_path, num_classes, base_dir)
+            test_stats, _ = inspect_split("test", test_path, num_classes, base_dir, max_workers=self.threads)
 
         # Check data leakage between train and val
         leakage_count = len(set(train_hashes.keys()) & set(val_hashes.keys()))

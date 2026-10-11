@@ -351,8 +351,9 @@ class HailoInferenceEngine(BaseInferenceEngine):
 class ONNXInferenceEngine(BaseInferenceEngine):
     """CPU/GPU inference engine using ONNX Runtime."""
 
-    def __init__(self, onnx_path: Union[str, Path]) -> None:
+    def __init__(self, onnx_path: Union[str, Path], threads: Optional[int] = None) -> None:
         self.onnx_path = Path(onnx_path).resolve()
+        self.threads = threads
         if not self.onnx_path.is_file():
             raise DeploymentError(
                 f"ONNX model file not found: {self.onnx_path}",
@@ -373,7 +374,10 @@ class ONNXInferenceEngine(BaseInferenceEngine):
         if "CUDAExecutionProvider" in ort.get_available_providers():
             providers.insert(0, "CUDAExecutionProvider")
 
-        self.session = ort.InferenceSession(str(self.onnx_path), providers=providers)
+        from yolo_hailo_mlops.operations import get_multithreaded_ort_session_options
+        sess_opts = get_multithreaded_ort_session_options(threads=self.threads)
+
+        self.session = ort.InferenceSession(str(self.onnx_path), sess_options=sess_opts, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [o.name for o in self.session.get_outputs()]
 
@@ -409,14 +413,18 @@ class ONNXInferenceEngine(BaseInferenceEngine):
 class PyTorchInferenceEngine(BaseInferenceEngine):
     """PyTorch inference fallback using Ultralytics YOLO checkpoint."""
 
-    def __init__(self, checkpoint_path: Union[str, Path]) -> None:
+    def __init__(self, checkpoint_path: Union[str, Path], threads: Optional[int] = None) -> None:
         self.ckpt_path = Path(checkpoint_path).resolve()
+        self.threads = threads
         if not self.ckpt_path.is_file():
             raise DeploymentError(
                 f"PyTorch checkpoint file not found: {self.ckpt_path}",
                 code="E-DEPLOY-PT-001",
                 artifact=str(self.ckpt_path),
             )
+
+        from yolo_hailo_mlops.operations import configure_cpu_multithreading
+        configure_cpu_multithreading(self.threads)
 
         try:
             from ultralytics import YOLO
@@ -461,6 +469,7 @@ def create_inference_engine(
     model_path: Optional[Union[str, Path]] = None,
     backend: str = "auto",
     root_artifacts: Optional[Union[str, Path]] = None,
+    threads: Optional[int] = None,
 ) -> BaseInferenceEngine:
     """Create inference engine according to target availability and backend preferences."""
     root = Path(root_artifacts) if root_artifacts else Path("artifacts")
@@ -577,12 +586,18 @@ def create_inference_engine(
                     code="E-DEPLOY-BCK-003",
                     remediation="Export to ONNX ('python train_and_compile.py export') or specify '--model yolo11n.pt'.",
                 )
+        def _make_onnx(p):
+            return ONNXInferenceEngine(p, threads=threads) if threads is not None else ONNXInferenceEngine(p)
+
+        def _make_pytorch(p):
+            return PyTorchInferenceEngine(p, threads=threads) if threads is not None else PyTorchInferenceEngine(p)
+
         if ext == ".onnx":
-            return ONNXInferenceEngine(model_p)
+            return _make_onnx(model_p)
         elif ext == ".pt":
-            return PyTorchInferenceEngine(model_p)
+            return _make_pytorch(model_p)
         else:
-            return PyTorchInferenceEngine(model_p)
+            return _make_pytorch(model_p)
 
     elif norm_backend == "onnx":
         if ext != ".onnx":
@@ -594,10 +609,10 @@ def create_inference_engine(
                     f"ONNX backend requires an .onnx model, got '{model_p.name}'",
                     code="E-DEPLOY-BCK-002",
                 )
-        return ONNXInferenceEngine(model_p)
+        return ONNXInferenceEngine(model_p, threads=threads) if threads is not None else ONNXInferenceEngine(model_p)
 
     elif norm_backend == "pytorch":
-        return PyTorchInferenceEngine(model_p)
+        return PyTorchInferenceEngine(model_p, threads=threads) if threads is not None else PyTorchInferenceEngine(model_p)
 
     # Auto resolution
     if ext == ".hef":
@@ -612,31 +627,31 @@ def create_inference_engine(
                     onnx_cand = root / "onnx" / "model.onnx"
                     if onnx_cand.is_file():
                         print(f"[INFO] Gracefully utilizing ONNX runtime engine ({onnx_cand})...")
-                        return ONNXInferenceEngine(onnx_cand)
+                        return ONNXInferenceEngine(onnx_cand, threads=threads) if threads is not None else ONNXInferenceEngine(onnx_cand)
                     pt_cand = root / "pytorch" / "best.pt"
                     if pt_cand.is_file():
                         print(f"[INFO] Gracefully utilizing PyTorch CPU engine ({pt_cand})...")
-                        return PyTorchInferenceEngine(pt_cand)
+                        return PyTorchInferenceEngine(pt_cand, threads=threads) if threads is not None else PyTorchInferenceEngine(pt_cand)
                     pt_base = Path("yolo11n.pt")
                     if pt_base.is_file():
                         print(f"[INFO] Gracefully utilizing base PyTorch engine ({pt_base})...")
-                        return PyTorchInferenceEngine(pt_base)
+                        return PyTorchInferenceEngine(pt_base, threads=threads) if threads is not None else PyTorchInferenceEngine(pt_base)
                 raise
         else:
             # Fallback to ONNX if available
             onnx_cand = root / "onnx" / "model.onnx"
             if onnx_cand.is_file():
-                return ONNXInferenceEngine(onnx_cand)
+                return ONNXInferenceEngine(onnx_cand, threads=threads) if threads is not None else ONNXInferenceEngine(onnx_cand)
             pt_cand = root / "pytorch" / "best.pt"
             if pt_cand.is_file():
-                return PyTorchInferenceEngine(pt_cand)
+                return PyTorchInferenceEngine(pt_cand, threads=threads) if threads is not None else PyTorchInferenceEngine(pt_cand)
             # Re-raise informative error from Hailo engine
             return HailoInferenceEngine(model_p)
 
     elif ext == ".onnx":
-        return ONNXInferenceEngine(model_p)
+        return ONNXInferenceEngine(model_p, threads=threads) if threads is not None else ONNXInferenceEngine(model_p)
     elif ext == ".pt":
-        return PyTorchInferenceEngine(model_p)
+        return PyTorchInferenceEngine(model_p, threads=threads) if threads is not None else PyTorchInferenceEngine(model_p)
     else:
         raise DeploymentError(
             f"Unsupported model extension '{ext}'. Expected .hef, .onnx, or .pt.",

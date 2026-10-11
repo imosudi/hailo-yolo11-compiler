@@ -108,10 +108,9 @@ class CalibrationSelector:
         selected_paths = sample_images(source_candidates, count=count, seed=seed)
 
         target_size = (self.config.export.imgsz, self.config.export.imgsz)
-        preprocessed_arrays: List[np.ndarray] = []
-        sample_records: List[CalibrationSampleRecord] = []
 
-        for idx, src_p in enumerate(selected_paths):
+        def _process_sample(entry: Tuple[int, Path]) -> Tuple[int, np.ndarray, CalibrationSampleRecord]:
+            idx, src_p = entry
             dest_name = f"calib_{idx:04d}{src_p.suffix.lower()}"
             dest_path = self.images_dir / dest_name
 
@@ -119,21 +118,25 @@ class CalibrationSelector:
                 orig_w, orig_h = img.size
 
             arr = preprocess_calibration_image(src_p, target_size=target_size)
-            preprocessed_arrays.append(arr)
-
-            # Save processed image copy
             Image.fromarray(arr).save(dest_path)
             sample_sha = compute_sha256(dest_path)
 
-            sample_records.append(
-                CalibrationSampleRecord(
-                    source_path=str(src_p),
-                    calib_filename=dest_name,
-                    sha256=sample_sha,
-                    original_size=[orig_w, orig_h],
-                    preprocessed_shape=list(arr.shape),
-                )
+            rec = CalibrationSampleRecord(
+                source_path=str(src_p),
+                calib_filename=dest_name,
+                sha256=sample_sha,
+                original_size=[orig_w, orig_h],
+                preprocessed_shape=list(arr.shape),
             )
+            return idx, arr, rec
+
+        from yolo_hailo_mlops.operations import parallel_map
+        indexed_items = list(enumerate(selected_paths))
+        results = parallel_map(_process_sample, indexed_items, max_workers=getattr(self.config, "threads", None))
+        results.sort(key=lambda r: r[0])
+
+        preprocessed_arrays: List[np.ndarray] = [r[1] for r in results]
+        sample_records: List[CalibrationSampleRecord] = [r[2] for r in results]
 
         # Save single numpy file for Hailo DFC optimisation consumption
         calib_npy_path = self.output_dir / "calib_data.npy"

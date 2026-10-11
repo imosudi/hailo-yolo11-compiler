@@ -128,6 +128,7 @@ class DeploymentConfig:
     telemetry_enabled: bool = True
     telemetry_path: str = "telemetry.jsonl"
     telemetry_interval: float = 1.0
+    threads: Optional[int] = None
 
 
 @dataclass
@@ -152,6 +153,7 @@ class AppConfig:
     resume: bool = False
     verbose: bool = False
     config_file: Optional[str] = None
+    threads: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert configuration to dictionary."""
@@ -378,6 +380,7 @@ def load_config(
         camera_type=get_env_val("YOLO_HAILO_DEPLOY_CAM_TYPE", deploy_d.get("camera_type", "auto")),
         fps_limit=deploy_d.get("fps_limit"),
         max_frames=deploy_d.get("max_frames"),
+        threads=get_env_val("YOLO_HAILO_CPU_THREADS", deploy_d.get("threads"), int),
     )
 
     # Execution controls
@@ -405,6 +408,7 @@ def load_config(
         resume=get_env_val("YOLO_HAILO_RESUME", False, bool),
         verbose=get_env_val("YOLO_HAILO_VERBOSE", False, bool),
         config_file=str(config_file_path) if config_file_path.exists() else None,
+        threads=get_env_val("YOLO_HAILO_CPU_THREADS", deploy_d.get("threads"), int),
     )
 
     # 4. Apply CLI argument overrides (Highest Precedence)
@@ -471,6 +475,9 @@ def load_config(
             app_cfg.deployment.telemetry_path = str(cli_overrides["telemetry_path"])
         if "telemetry_interval" in cli_overrides and cli_overrides["telemetry_interval"] is not None:
             app_cfg.deployment.telemetry_interval = float(cli_overrides["telemetry_interval"])
+        if "threads" in cli_overrides and cli_overrides["threads"] is not None:
+            app_cfg.threads = int(cli_overrides["threads"])
+            app_cfg.deployment.threads = int(cli_overrides["threads"])
 
     app_cfg.validate()
     return app_cfg

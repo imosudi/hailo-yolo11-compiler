@@ -42,7 +42,9 @@ def compare_pytorch_onnx_numerical(
                 pyt_arr = pyt_out.cpu().numpy()
 
         # 2. ONNX Runtime forward
-        sess = ort.InferenceSession(str(onnx_p), providers=["CPUExecutionProvider"])
+        from yolo_hailo_mlops.operations import get_multithreaded_ort_session_options
+        sess_opts = get_multithreaded_ort_session_options()
+        sess = ort.InferenceSession(str(onnx_p), sess_options=sess_opts, providers=["CPUExecutionProvider"])
         inp_name = sess.get_inputs()[0].name
         ort_out = sess.run(None, {inp_name: test_input})
         ort_arr = ort_out[0]

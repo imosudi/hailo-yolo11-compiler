@@ -257,7 +257,7 @@ class PipelineRunner:
 
         self.logger.info("Starting Dataset Pre-flight Validation...", phase="dataset_validation")
         self.sm.start_phase(PhaseName.DATASET_VALIDATION)
-        validator = DatasetValidator(self.config.dataset.yaml)
+        validator = DatasetValidator(self.config.dataset.yaml, threads=getattr(self.config, "threads", None))
         report = validator.validate(fail_fast=True)
         self.sm.complete_phase(PhaseName.DATASET_VALIDATION, metadata=report.to_dict())
         self.logger.info("Dataset validation passed successfully.", phase="dataset_validation")
@@ -285,7 +285,7 @@ class PipelineRunner:
         # Phase A: Dataset validation
         self.logger.info("Starting Dataset Pre-flight Validation...", phase="dataset_validation")
         self.sm.start_phase(PhaseName.DATASET_VALIDATION)
-        validator = DatasetValidator(self.config.dataset.yaml)
+        validator = DatasetValidator(self.config.dataset.yaml, threads=getattr(self.config, "threads", None))
         report = validator.validate(fail_fast=True)
         self.sm.complete_phase(PhaseName.DATASET_VALIDATION, metadata=report.to_dict())
         self.logger.info("Dataset validation passed successfully.", phase="dataset_validation")
@@ -675,6 +675,7 @@ class PipelineRunner:
             telemetry_enabled=self.config.deployment.telemetry_enabled,
             telemetry_path=self.config.deployment.telemetry_path,
             telemetry_interval=self.config.deployment.telemetry_interval,
+            threads=self.config.deployment.threads,
         )
 
         res = pipeline.run()
@@ -945,8 +946,17 @@ def main() -> None:
                         help="Path to telemetry output JSONL file (default: telemetry.jsonl)")
     parser.add_argument("--telemetry-interval", dest="telemetry_interval", type=float, default=None,
                         help="Telemetry sample interval in seconds (default: 1.0)")
+    parser.add_argument("--threads", "--cpu-threads", dest="threads", type=int, default=None,
+                        help="Number of CPU worker threads for multithreaded CPU operations (default: auto)")
 
     args = parser.parse_args()
+
+    # Configure optimal CPU multithreading across PyTorch, OpenCV, OpenMP
+    try:
+        from yolo_hailo_mlops.operations import configure_cpu_multithreading
+        configure_cpu_multithreading(args.threads)
+    except Exception:
+        pass
 
     # Resolve deployment backend based on target/cpu/hailo/backend flags
     deploy_backend = args.backend
@@ -991,6 +1001,7 @@ def main() -> None:
         "telemetry_enabled": args.telemetry,
         "telemetry_path": args.telemetry_path,
         "telemetry_interval": args.telemetry_interval,
+        "threads": args.threads,
     }
 
     try:

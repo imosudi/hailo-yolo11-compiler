@@ -131,8 +131,10 @@ def validate_onnx_model(
 
     try:
         import onnxruntime as ort
+        from yolo_hailo_mlops.operations import get_multithreaded_ort_session_options
 
-        sess = ort.InferenceSession(str(p), providers=["CPUExecutionProvider"])
+        sess_opts = get_multithreaded_ort_session_options()
+        sess = ort.InferenceSession(str(p), sess_options=sess_opts, providers=["CPUExecutionProvider"])
         inp_name = sess.get_inputs()[0].name
         dummy_input = np.zeros(expected_shape, dtype=np.float32)
 
