@@ -13,8 +13,8 @@ A reproducible, state-machine driven Edge AI MLOps compiler and evaluation pipel
 
 1. [Project Purpose & Engineering Objectives](#1-project-purpose--engineering-objectives)
 2. [Supported YOLO11 Variants](#2-supported-yolo11-variants)
-3. [Software Prerequisites](#3-software-prerequisites)
-4. [Python Environment Setup](#4-python-environment-setup)
+3. [Complete Pipeline Stages & CLI Reference](#3-complete-pipeline-stages--cli-reference)
+4. [Software Prerequisites & Canonical Python 3.10 Setup](#4-software-prerequisites--canonical-python-310-setup)
 5. [Dataset Format & Pre-flight Validation](#5-dataset-format--pre-flight-validation)
 6. [Configuration System](#6-configuration-system)
 7. [YOLO11 Training & Fine-Tuning](#7-yolo11-training--fine-tuning)
@@ -469,6 +469,8 @@ python train_and_compile.py validate --config config/config.yaml
 - Enforces degradation gates ($\Delta\text{mAP} \le 0.05$); emits machine-readable evaluation metrics into `run_manifest.json` and human-readable `run_report.md`.
 
 ---
+
+## 13. Performance Validation & Hardware Telemetry
 
 ### Physical Edge Hardware Benchmarks (Raspberry Pi 5 + Hailo-8L AI HAT+)
 
