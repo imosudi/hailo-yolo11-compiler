@@ -608,6 +608,16 @@ class PipelineRunner:
         report_md_path = self.run_dir / "run_report.md"
         atomic_write(report_md_path, "\n".join(md_lines))
 
+        # Always update latest pointer to newest run
+        latest_link = self.root_artifacts / "latest"
+        safe_symlink_or_copy(self.run_dir, latest_link)
+
+        print(f"\n================================================================================")
+        print(f" REPORT SAVED:   {report_md_path}")
+        print(f" MANIFEST SAVED: {manifest_path}")
+        print(f" LATEST LINK:    {latest_link}")
+        print(f"================================================================================\n")
+
 
 def main() -> None:
     """CLI entry point parsing arguments and directing execution flow."""
@@ -681,21 +691,25 @@ def main() -> None:
             sys.exit(runner.run_doctor())
         elif cmd == "dataset":
             sys.exit(runner.run_dataset())
-        elif cmd == "train":
-            runner.run_train()
+        elif cmd in ("train", "export", "calibrate", "compile", "validate"):
+            if cmd == "train":
+                runner.run_train()
+            elif cmd == "export":
+                runner.run_export()
+            elif cmd == "calibrate":
+                runner.run_calibrate()
+            elif cmd == "compile":
+                runner.run_compile()
+            elif cmd == "validate":
+                runner.run_validate()
+            
+            status = runner.sm.finish()
+            runner.manifest.status = status.value
+            runner.manifest.phases = runner.sm.to_dict()["phases"]
+            runner.manifest.completed_at = runner.sm.completed_at
+            runner.manifest.duration_seconds = runner.sm.to_dict()["duration_seconds"]
             runner.generate_reports()
-        elif cmd == "export":
-            runner.run_export()
-            runner.generate_reports()
-        elif cmd == "calibrate":
-            runner.run_calibrate()
-            runner.generate_reports()
-        elif cmd == "compile":
-            runner.run_compile()
-            runner.generate_reports()
-        elif cmd == "validate":
-            runner.run_validate()
-            runner.generate_reports()
+            sys.exit(0 if status in (PipelineStatus.SUCCESS, PipelineStatus.PARTIAL) else 1)
         elif cmd == "all":
             sys.exit(runner.run_all())
 
