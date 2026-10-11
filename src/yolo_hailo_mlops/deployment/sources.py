@@ -449,13 +449,13 @@ class Picamera2Source(BaseFrameSource):
                 self.picam2.start()
                 return
             except Exception as e:
-                print(f"[NOTICE] Picamera2 device initialization error ({e}). Attempting libcamera stream fallback...")
+                print(f"[NOTICE] Picamera2 device initialisation error ({e}). Attempting libcamera stream fallback...")
 
         # 2. Attempt native Raspberry Pi libcamera stream (rpicam-vid / libcamera-vid)
         # Directly supports Raspberry Pi AI Camera (Sony IMX500), Camera Module 3, and CSI sensors
         if shutil.which("rpicam-vid") or shutil.which("libcamera-vid"):
             try:
-                print(f"[INFO] Seamlessly utilizing native Raspberry Pi Camera stream (rpicam-vid/libcamera) for camera {camera_num}...")
+                print(f"[INFO] Seamlessly utilising native Raspberry Pi Camera stream (rpicam-vid/libcamera) for camera {camera_num}...")
                 self._fallback_libcam = LibcameraStreamSource(
                     camera_num=self.camera_num,
                     target_resolution=(self._width, self._height),

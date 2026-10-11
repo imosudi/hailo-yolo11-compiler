@@ -622,7 +622,7 @@ def create_inference_engine(
                 return HailoInferenceEngine(model_p)
             except DeploymentError as e:
                 if norm_backend != "hailo":
-                    print(f"[NOTICE] Hailo accelerator engine initialization note ({e.message}).")
+                    print(f"[NOTICE] Hailo accelerator engine initialisation note ({e.message}).")
                     # Fallback to ONNX or PyTorch if available
                     onnx_cand = root / "onnx" / "model.onnx"
                     if onnx_cand.is_file():

@@ -101,10 +101,10 @@ The compiler dynamically inspects model architecture, class definitions, and tas
 | **Phase A** | Dataset Pre-flight Validation | Portable Host | Validates YOLO syntax, label boundaries, missing pairs, image corruption, and data leakage. | `validation_report.json` | ✅ PASS | `python train_and_compile.py dataset --config config/config.yaml` |
 | **Phase B** | YOLO11 Training & Checkpoint | Portable Host | Fine-tunes YOLO11 on dataset using PyTorch / Ultralytics; registers best checkpoint. | `pytorch/best.pt`<br>`results.csv` | ✅ PASS | `python train_and_compile.py train --model yolo11n.pt --epochs 50 --batch 16 --device cpu` |
 | **Phase C & C2** | Static FP32 ONNX Export & Parity | Portable Host | Exports static $1 \times 3 \times 640 \times 640$ ONNX graph and validates numerical parity vs PyTorch. | `onnx/model.onnx`<br>`onnx/export_report.json` | ✅ PASS | `python train_and_compile.py export --model artifacts/runs/latest/pytorch/best.pt` |
-| **Phase D** | Deterministic Calibration Sampling | Portable Host | Generates 200 RGB letterboxed samples with pinned random seed for quantization. | `calibration/calib_data.npy`<br>`calibration/manifest.json` | ✅ PASS | `python train_and_compile.py calibrate --config config/config.yaml` |
+| **Phase D** | Deterministic Calibration Sampling | Portable Host | Generates 200 RGB letterboxed samples with pinned random seed for quantisation. | `calibration/calib_data.npy`<br>`calibration/manifest.json` | ✅ PASS | `python train_and_compile.py calibrate --config config/config.yaml` |
 | **Phase E** | Hailo Environment Detection | Portable Host | Probes host toolchain, detects Hailo DFC compiler, HailoRT driver, and physical `/dev/hailo0`. | Diagnostic Telemetry | ✅ PASS | `python train_and_compile.py doctor` |
 | **Phase F** | Hailo ONNX $\rightarrow$ HAR Parser | Hailo DFC | Translates static FP32 ONNX graph into Hailo Archive (`model.har`) applying canonical 6-head detection slicing. | `hailo/model.har` | ✅ PASS | `python train_and_compile.py compile --config config/config.yaml` |
-| **Phase G** | Hailo INT8 Post-Training Quantisation | Hailo DFC | Quantizes weights/activations to INT8 using `calib_data.npy` via DFC optimizer. | `hailo/model_quantized.har` | ✅ PASS | *(Executed within compile)* |
+| **Phase G** | Hailo INT8 Post-Training Quantisation | Hailo DFC | Quantises weights/activations to INT8 using `calib_data.npy` via DFC optimiser. | `hailo/model_quantized.har` | ✅ PASS | *(Executed within compile)* |
 | **Phase H** | Hailo-8L HEF Compilation | Hailo DFC | Compiles and schedules quantised HAR to binary `model.hef` targeting Hailo-8L architecture. | `hailo/model.hef`<br>`hailo/hef_report.json` | ✅ PASS | *(Executed within compile)* |
 | **Phase J** | HailoRT Physical Smoke Test | Hailo Runtime | Validates HEF runtime loading and smoke inference on physical Raspberry Pi 5 AI HAT+ (`/dev/hailo0`). | `telemetry.json` | ✅ PASS | `python train_and_compile.py validate --config config/config.yaml` |
 | **Phase I** | Quantitative Accuracy Gates | Host / Hailo | Evaluates mAP degradation ($\Delta\text{mAP50} \le 0.05$, $\Delta\text{mAP50-95} \le 0.05$) against FP32 PyTorch. | `evaluation_report.json` | ✅ PASS | *(Executed within validate)* |
@@ -127,7 +127,7 @@ The pipeline follows a defensible **dual-environment architecture** matching the
 
 ---
 
-### 4.1 Host Workstation Setup (x86_64 — Python 3.10)
+### 4.1 Host Workstation Setup (x86_64, Python 3.10)
 
 ```bash
 # 1. Add DeadSnakes PPA for Python 3.10 on modern Ubuntu (22.04 / 24.04)
@@ -155,7 +155,7 @@ python train_and_compile.py doctor
 
 ---
 
-### 4.2 Raspberry Pi 5 Edge Setup (aarch64 — Python 3.12)
+### 4.2 Raspberry Pi 5 Edge Setup (aarch64, Python 3.12)
 
 On Raspberry Pi OS (Debian 12 Bookworm) or Ubuntu 24.04:
 
@@ -469,9 +469,9 @@ python train_and_compile.py validate --config config/config.yaml
 | :--- | :---: | :---: | :---: | :---: | :---: |
 | **$\text{mAP}_{50}$** | `0.690` (69.0%) | `0.668` (66.8%) | $0.0223$ ($2.23\%$) | $\le 0.050$ ($5\%$) | **PASSED** ✅ |
 | **$\text{mAP}_{50-95}$** | `0.530` (53.0%) | `0.497` (49.7%) | $0.0337$ ($3.37\%$) | $\le 0.050$ ($5\%$) | **PASSED** ✅ |
-| **Preprocess** | $1.4\text{ ms}$ | $11.0\text{ ms}$ | — | — | — |
-| **Inference Latency** | $53.5\text{ ms}$ | $69.7\text{ ms}$ | — | — | — |
-| **Postprocess** | $2.3\text{ ms}$ | $23.7\text{ ms}$ | — | — | — |
+| **Preprocess** | $1.4\text{ ms}$ | $11.0\text{ ms}$ | - | - | - |
+| **Inference Latency** | $53.5\text{ ms}$ | $69.7\text{ ms}$ | - | - | - |
+| **Postprocess** | $2.3\text{ ms}$ | $23.7\text{ ms}$ | - | - | - |
 
 - Calculates absolute degradation:
   $$\Delta\text{mAP50} = \text{mAP50}_{\text{PyTorch}} - \text{mAP50}_{\text{Candidate}}$$
@@ -508,7 +508,7 @@ Every metric recorded in `run_manifest.json` is stamped with a strict provenance
 
 | Classification | Meaning | Example |
 | :--- | :--- | :--- |
-| `MEASURED` | Directly observed from physical sensors or system calls | `soc_temperature`, `cpu_utilization` |
+| `MEASURED` | Directly observed from physical sensors or system calls | `soc_temperature`, `cpu_utilisation` |
 | `DERIVED` | Statistically calculated from measured primitives | `median_latency_ms`, `throughput_fps` |
 | `CONFIGURED` | Fixed parameter declared in configuration | `warmup_iterations`, `imgsz` |
 | `UNAVAILABLE` | Metric requested but hardware/driver cannot expose it | `hailo_power: null` (Sensor absent) |
@@ -546,7 +546,7 @@ python train_and_compile.py deploy --source data/dataset/images/val --no-show --
 
 ### Multithreaded CPU Operations & Hardware Acceleration
 
-The pipeline incorporates a dedicated operations optimization engine ([operations.py](operations.py)) ensuring high CPU throughput for host-side preprocessing, ONNX Runtime inference, PyTorch fallback, and dataset validation:
+The pipeline incorporates a dedicated operations optimisation engine ([operations.py](operations.py)) ensuring high CPU throughput for host-side preprocessing, ONNX Runtime inference, PyTorch fallback, and dataset validation:
 
 ```bash
 # Inspect CPU core capacity, thread pools, and SIMD/BLAS bindings
@@ -557,7 +557,7 @@ python operations.py --benchmark
 ```
 
 - **Runtime Flags**: Pass `--threads <N>` or `--cpu-threads <N>` (or set `YOLO_HAILO_CPU_THREADS=<N>`) to control worker allocations.
-- **Engine Opts**: Configures ONNX Runtime with `ExecutionMode.ORT_PARALLEL`, intra/inter-op threads, PyTorch thread pools, OpenCV optimizations (`cv2.setUseOptimized`), and parallel DataLoaders.
+- **Engine Opts**: Configures ONNX Runtime with `ExecutionMode.ORT_PARALLEL`, intra/inter-op threads, PyTorch thread pools, OpenCV optimisations (`cv2.setUseOptimized`), and parallel DataLoaders.
 
 ### Interactive Runtime Controls
 - **`q` or `ESC`**: Gracefully terminate deployment session and generate summary.

@@ -257,7 +257,7 @@ class LiveDeploymentPipeline:
                     telemetry_worker.start()
                     print(f"  Live Telemetry:       RECORDING -> {self.telemetry_path} (Device: {inference_device})")
                 except Exception as e:
-                    print(f"  [WARNING] Telemetry collector initialization failed: {e}")
+                    print(f"  [WARNING] Telemetry collector initialisation failed: {e}")
 
         total_frames = 0
         total_detections_count = 0
@@ -274,7 +274,7 @@ class LiveDeploymentPipeline:
                 cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
                 cv2.resizeWindow(window_name, min(1280, self.source.resolution[0]), min(720, self.source.resolution[1]))
             except Exception as e:
-                print(f"[WARNING] GUI window initialization failed ({e}). Switching to headless mode.")
+                print(f"[WARNING] GUI window initialisation failed ({e}). Switching to headless mode.")
                 self.show = False
 
         paused = False

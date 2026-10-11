@@ -302,7 +302,7 @@ class ArtifactIntegrityError(YoloHailoError):
 
 
 class DeploymentError(YoloHailoError):
-    """Raised when live deployment camera initialization, frame ingestion, or streaming fails."""
+    """Raised when live deployment camera initialisation, frame ingestion, or streaming fails."""
 
     def __init__(
         self,

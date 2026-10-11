@@ -73,7 +73,7 @@ The master configuration file is located at `config/config.yaml`. Both British E
 | :--- | :--- | :--- | :--- |
 | `yaml` | `str` | `"data/dataset.yaml"` | Path to standard YOLO dataset YAML descriptor. |
 | `calibration.source` | `str` | `"train"` | Calibration source: `"train"` (samples from training split) or `"custom"`. |
-| `calibration.count` | `int` | `200` | Number of calibration images (recommended range: 100–200). |
+| `calibration.count` | `int` | `200` | Number of calibration images (recommended range: 100-200). |
 | `calibration.seed` | `int` | `42` | Pseudo-random seed for deterministic calibration image selection. |
 | `calibration.custom_dir`| `str \| null` | `null` | Path to custom calibration directory when `source: "custom"`. |
 

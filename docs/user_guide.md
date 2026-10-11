@@ -70,7 +70,7 @@ The compiler follows a dual-environment operational model:
 - **Compilation Host (x86_64)**: Runs **Python 3.10** (`venv-dfc3`) for Hailo DFC v3.34.0, YOLO11 training, ONNX export, calibration, and HEF compilation.
 - **Edge Accelerator (Raspberry Pi 5 / aarch64)**: Runs native **Python 3.12** with HailoRT (`python3-hailort`), `picamera2`, `libcamera`, and live deployment.
 
-### Host Workstation Setup (x86_64 — Python 3.10)
+### Host Workstation Setup (x86_64, Python 3.10)
 
 ```bash
 # 1. Create Python 3.10 virtual environment
@@ -88,7 +88,7 @@ pip install -e ".[dev,training,onnx]"
 python train_and_compile.py doctor
 ```
 
-### Raspberry Pi 5 Edge Setup (aarch64 — Python 3.12)
+### Raspberry Pi 5 Edge Setup (aarch64, Python 3.12)
 
 ```bash
 # 1. Install system HailoRT and camera libraries
@@ -479,7 +479,7 @@ Every recorded data point includes an active inference device label (`Device: NP
 
 ## 11. CPU Multithreading & Operations Engine (`operations.py`)
 
-To maximize pipeline performance during host-bound operations, the compiler includes a dedicated operations optimization engine ([operations.py](../operations.py)):
+To maximise pipeline performance during host-bound operations, the compiler includes a dedicated operations optimisation engine ([operations.py](../operations.py)):
 
 ### Standalone Status & Benchmark Tools
 
@@ -494,7 +494,7 @@ python operations.py --benchmark
 ### Multithreaded Subsystems
 - **ONNX Runtime**: Automatically configured with `ExecutionMode.ORT_PARALLEL`, intra-op and inter-op thread pools.
 - **PyTorch**: Inter-op and intra-op thread counts tuned to host physical core capacity.
-- **OpenCV**: Vectorized optimizations enabled (`cv2.setUseOptimized(True)`) with thread pool matching available cores.
+- **OpenCV**: Vectorised optimisations enabled (`cv2.setUseOptimized(True)`) with thread pool matching available cores.
 - **Data Loaders & Validation**: Parallel multi-threaded calibration sampling and dataset integrity checks.
 - **CLI Parameter**: Specify `--threads <N>` or `--cpu-threads <N>` on any pipeline command to override automatic thread pool sizing.
 

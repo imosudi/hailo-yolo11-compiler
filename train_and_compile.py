@@ -16,7 +16,7 @@ for p in (str(ROOT_DIR), str(SRC_DIR)):
     if p not in sys.path:
         sys.path.insert(0, p)
 
-# Initialize optimized CPU multithreading for all operations
+# Initialise optimised CPU multithreading for all operations
 try:
     from operations import configure_cpu_multithreading
     configure_cpu_multithreading()
