@@ -604,6 +604,51 @@ class PipelineRunner:
 
         return 0 if status in (PipelineStatus.SUCCESS, PipelineStatus.PARTIAL) else 1
 
+    def run_deploy(self) -> int:
+        """Execute live deployment on Raspberry Pi 5 / Hailo-8L accelerator."""
+        from yolo_hailo_mlops.deployment import LiveDeploymentPipeline
+
+        # Load class names from dataset YAML if available
+        class_names = None
+        num_classes = 80
+        ds_yaml = Path(self.config.dataset.yaml)
+        if ds_yaml.is_file():
+            try:
+                import yaml
+                with open(ds_yaml, "r", encoding="utf-8") as f:
+                    ds_data = yaml.safe_load(f)
+                    if isinstance(ds_data, dict):
+                        if "names" in ds_data:
+                            names_raw = ds_data["names"]
+                            if isinstance(names_raw, list):
+                                class_names = {i: str(n) for i, n in enumerate(names_raw)}
+                            elif isinstance(names_raw, dict):
+                                class_names = {int(k): str(v) for k, v in names_raw.items()}
+                        if "nc" in ds_data:
+                            num_classes = int(ds_data["nc"])
+            except Exception as e:
+                self.logger.warning(f"Could not load class names from {ds_yaml}: {e}", phase="deployment")
+
+        pipeline = LiveDeploymentPipeline(
+            source=self.config.deployment.source,
+            model_path=self.config.deployment.model_path or self.config.model.source,
+            backend=self.config.deployment.backend,
+            conf_threshold=self.config.deployment.conf_threshold,
+            iou_threshold=self.config.deployment.iou_threshold,
+            imgsz=self.config.deployment.imgsz,
+            show=self.config.deployment.show,
+            save_dir=self.config.deployment.save_dir,
+            camera_type=self.config.deployment.camera_type,
+            fps_limit=self.config.deployment.fps_limit,
+            max_frames=self.config.deployment.max_frames,
+            class_names=class_names,
+            num_classes=num_classes,
+            root_artifacts=self.root_artifacts,
+        )
+
+        res = pipeline.run()
+        return 0 if res["frames_processed"] > 0 else 1
+
     def generate_reports(self) -> None:
         """Generate machine-readable JSON report and human-readable Markdown validation report."""
         manifest_path = self.run_dir / "run_manifest.json"
@@ -796,14 +841,14 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    parser.add_argument("command", choices=["doctor", "dataset", "train", "export", "calibrate", "compile", "validate", "all"],
+    parser.add_argument("command", choices=["doctor", "dataset", "train", "export", "calibrate", "compile", "validate", "deploy", "all"],
                         help="Pipeline phase to execute")
     parser.add_argument("--config", "-c", type=str, default="config/config.yaml",
                         help="Path to YAML configuration file")
     parser.add_argument("--run-id", type=str, default=None,
                         help="Explicit run identifier")
     parser.add_argument("--model", type=str, default=None,
-                        help="Source YOLO11 weights or variant (e.g. yolo11n.pt)")
+                        help="Source YOLO11 weights, ONNX model, or HEF binary (e.g. yolo11n.pt, model.hef)")
     parser.add_argument("--dataset", type=str, default=None,
                         help="Path to YOLO dataset YAML file")
     parser.add_argument("--device", type=str, default=None,
@@ -833,6 +878,28 @@ def main() -> None:
     parser.add_argument("--execution-mode", choices=["auto", "portable", "hailo_compile", "hailo_runtime"],
                         default="auto", help="Boundary execution mode")
 
+    # Live deployment options
+    parser.add_argument("--source", type=str, default=None,
+                        help="Input source for live deployment: camera index ('0'), video file path, or images directory")
+    parser.add_argument("--backend", choices=["auto", "hailo", "onnx", "pytorch"], default="auto",
+                        help="Execution backend for live deployment ('auto', 'hailo', 'onnx', 'pytorch')")
+    parser.add_argument("--conf", type=float, default=None,
+                        help="Confidence threshold for live deployment (default 0.25)")
+    parser.add_argument("--iou", type=float, default=None,
+                        help="IoU NMS threshold for live deployment (default 0.45)")
+    parser.add_argument("--show", dest="show", action="store_true", default=None,
+                        help="Force display live GUI window")
+    parser.add_argument("--no-show", "--headless", dest="show", action="store_false",
+                        help="Run live deployment in headless mode without GUI window")
+    parser.add_argument("--output-dir", "--save-dir", type=str, default=None,
+                        help="Directory to save annotated video or processed images")
+    parser.add_argument("--camera-type", choices=["auto", "opencv", "picamera2"], default="auto",
+                        help="Camera interface implementation ('auto', 'opencv', 'picamera2')")
+    parser.add_argument("--fps-limit", type=float, default=None,
+                        help="Target FPS cap for playback or camera stream")
+    parser.add_argument("--max-frames", type=int, default=None,
+                        help="Maximum frames to process before terminating")
+
     args = parser.parse_args()
 
     cli_overrides = {
@@ -851,6 +918,16 @@ def main() -> None:
         "execution_mode": args.execution_mode,
         "require_hardware": args.require_hardware,
         "measure_power": args.measure_power,
+        # Live deployment overrides
+        "source": args.source,
+        "deploy_backend": args.backend,
+        "conf": args.conf,
+        "iou": args.iou,
+        "show": args.show,
+        "save_dir": args.output_dir,
+        "camera_type": args.camera_type,
+        "fps_limit": args.fps_limit,
+        "max_frames": args.max_frames,
     }
 
     try:
@@ -865,6 +942,8 @@ def main() -> None:
             sys.exit(runner.run_doctor())
         elif cmd == "dataset":
             sys.exit(runner.run_dataset())
+        elif cmd == "deploy":
+            sys.exit(runner.run_deploy())
         elif cmd in ("train", "export", "calibrate", "compile", "validate"):
             if cmd == "train":
                 runner.run_train()

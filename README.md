@@ -24,13 +24,14 @@ A reproducible, state-machine driven Edge AI MLOps compiler and evaluation pipel
 11. [Hailo Hardware Validation](#11-hailo-hardware-validation)
 12. [Quantitative Accuracy Validation & Degradation Gates](#12-quantitative-accuracy-validation--degradation-gates)
 13. [Performance Validation & Hardware Telemetry](#13-performance-validation--hardware-telemetry)
-14. [Artefact Structure & Management](#14-artefact-structure--management)
-15. [Experiment Reproducibility & Result Integrity](#15-experiment-reproducibility--result-integrity)
-16. [Troubleshooting & Error Taxonomy](#16-troubleshooting--error-taxonomy)
-17. [Podman & Rootless Container Execution](#17-podman--rootless-container-execution)
-18. [Testing & Quality Assurance](#18-testing--quality-assurance)
-19. [Documentation Directory](#19-documentation-directory)
-20. [Licence](#20-licence)
+14. [Live Model Deployment (Camera, Video & Images Directory)](#14-live-model-deployment-camera-video--images-directory)
+15. [Artefact Structure & Management](#15-artefact-structure--management)
+16. [Experiment Reproducibility & Result Integrity](#16-experiment-reproducibility--result-integrity)
+17. [Troubleshooting & Error Taxonomy](#17-troubleshooting--error-taxonomy)
+18. [Podman & Rootless Container Execution](#18-podman--rootless-container-execution)
+19. [Testing & Quality Assurance](#19-testing--quality-assurance)
+20. [Documentation Directory](#20-documentation-directory)
+21. [Licence](#21-licence)
 
 ---
 
@@ -504,7 +505,38 @@ Captured hardware metrics include CPU utilisation, memory consumption, storage I
 
 ---
 
-## 14. Artefact Structure & Management
+## 14. Live Model Deployment (Camera, Video & Images Directory)
+
+The pipeline provides unified real-time streaming inference deployment on the physical **Raspberry Pi 5 + Hailo-8L accelerator**, with support for:
+1. **Live Camera**: Raspberry Pi CSI Camera Module (via `picamera2` / `libcamera`) or USB webcams (via V4L2 `cv2.VideoCapture`).
+2. **Recorded Video**: Video file streaming and frame-by-frame inference (`.mp4`, `.avi`, `.mkv`, etc.).
+3. **Images Directory**: Batch evaluation and annotation of directory of images (`.jpg`, `.png`, etc.) or single image file.
+
+```bash
+# 1. Live Camera Deployment (Auto-detects Hailo-8L, opens live window with HUD overlay)
+python train_and_compile.py deploy --source camera
+
+# 2. Camera deployment with output recording and FPS limit
+python train_and_compile.py deploy --source 0 --save-dir runs/deploy_output --fps-limit 30
+
+# 3. Recorded Video Inference with Hailo-8L
+python train_and_compile.py deploy --source /path/to/test_video.mp4 --save-dir runs/deploy_video
+
+# 4. Images Directory Batch Inference in Headless Mode
+python train_and_compile.py deploy --source data/dataset/images/val --no-show --save-dir runs/deploy_images
+
+# 5. Fallback or Comparative ONNX Runtime CPU Deployment
+python train_and_compile.py deploy --source camera --backend onnx --conf 0.35 --iou 0.45
+```
+
+### Interactive Runtime Controls
+- **`q` or `ESC`**: Gracefully terminate deployment session and generate summary.
+- **`p`**: Pause / resume streaming playback.
+- **`s`**: Capture and save high-resolution annotated snapshot to disk.
+
+---
+
+## 15. Artefact Structure & Management
 
 The repository maintains both canonical pointers and versioned, immutable experiment directories:
 
@@ -544,7 +576,7 @@ To prevent partially written or corrupt files resulting from process termination
 
 ---
 
-## 15. Experiment Reproducibility & Result Integrity
+## 16. Experiment Reproducibility & Result Integrity
 
 To ensure scientific and operational reproducibility:
 - **Seed Propagation**: A master random seed (default `42`) is deterministically propagated across Python, NumPy, PyTorch, cuDNN, and calibration samplers.
@@ -557,7 +589,7 @@ To ensure scientific and operational reproducibility:
 
 ---
 
-## 16. Troubleshooting & Error Taxonomy
+## 17. Troubleshooting & Error Taxonomy
 
 All pipeline exceptions are categorised under structured diagnostic error codes. When an error occurs, a standardised remediation block is printed:
 
@@ -580,7 +612,7 @@ python train_and_compile.py doctor
 
 ---
 
-## 17. Podman & Rootless Container Execution
+## 18. Podman & Rootless Container Execution
 
 The repository provides a rootless `Containerfile` and `compose.yaml` for isolated, reproducible execution of portable ML stages.
 
@@ -605,7 +637,7 @@ podman compose up --build
 
 ---
 
-## 18. Testing & Quality Assurance
+## 19. Testing & Quality Assurance
 
 The test suite validates configuration resolution, state machine transitions, dataset validation, ONNX export contracts, calibration generation, and mock compilation workflows:
 
@@ -622,7 +654,7 @@ pytest -v --cov=yolo_hailo_mlops tests/
 
 ---
 
-## 19. Documentation Directory
+## 20. Documentation Directory
 
 Comprehensive user manuals and architectural specifications are maintained in the [`docs/`](docs/) directory:
 
@@ -645,6 +677,6 @@ Comprehensive user manuals and architectural specifications are maintained in th
 
 ---
 
-## 20. Licence
+## 21. Licence
 
 Licensed under the **BSD 3-Clause Licence**. See [LICENSE](LICENSE) for details.

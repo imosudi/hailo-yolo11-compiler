@@ -112,6 +112,22 @@ class ArtifactsConfig:
 
 
 @dataclass
+class DeploymentConfig:
+    """Configuration for real-time live model deployment."""
+    source: str = "camera"
+    model_path: Optional[str] = None
+    backend: str = "auto"
+    conf_threshold: float = 0.25
+    iou_threshold: float = 0.45
+    imgsz: int = 640
+    show: Optional[bool] = None
+    save_dir: Optional[str] = None
+    camera_type: str = "auto"
+    fps_limit: Optional[float] = None
+    max_frames: Optional[int] = None
+
+
+@dataclass
 class AppConfig:
     """Master application configuration tree."""
     project: ProjectConfig = field(default_factory=ProjectConfig)
@@ -123,6 +139,7 @@ class AppConfig:
     quantization: QuantizationConfig = field(default_factory=QuantizationConfig)
     validation: ValidationConfig = field(default_factory=ValidationConfig)
     artifacts: ArtifactsConfig = field(default_factory=ArtifactsConfig)
+    deployment: DeploymentConfig = field(default_factory=DeploymentConfig)
 
     # Runtime operational controls
     run_id: Optional[str] = None
@@ -250,6 +267,7 @@ def load_config(
     acc_d = val_d.get("accuracy", {})
     perf_d = val_d.get("performance", {})
     art_d = raw.get("artifacts") or raw.get("artefacts") or {}
+    deploy_d = raw.get("deployment", {})
 
     # 3. Apply Environment Variable overrides
     def get_env_val(key: str, default: Any, caster: type = str) -> Any:
@@ -345,6 +363,20 @@ def load_config(
         root=get_env_val("YOLO_HAILO_ARTIFACTS_ROOT", art_d.get("root", "./artifacts")),
     )
 
+    deploy_cfg = DeploymentConfig(
+        source=get_env_val("YOLO_HAILO_DEPLOY_SOURCE", deploy_d.get("source", "camera")),
+        model_path=get_env_val("YOLO_HAILO_DEPLOY_MODEL", deploy_d.get("model_path")),
+        backend=get_env_val("YOLO_HAILO_DEPLOY_BACKEND", deploy_d.get("backend", "auto")),
+        conf_threshold=get_env_val("YOLO_HAILO_DEPLOY_CONF", deploy_d.get("conf_threshold", 0.25), float),
+        iou_threshold=get_env_val("YOLO_HAILO_DEPLOY_IOU", deploy_d.get("iou_threshold", 0.45), float),
+        imgsz=get_env_val("YOLO_HAILO_DEPLOY_IMGSZ", deploy_d.get("imgsz", 640), int),
+        show=deploy_d.get("show"),
+        save_dir=get_env_val("YOLO_HAILO_DEPLOY_SAVE_DIR", deploy_d.get("save_dir")),
+        camera_type=get_env_val("YOLO_HAILO_DEPLOY_CAM_TYPE", deploy_d.get("camera_type", "auto")),
+        fps_limit=deploy_d.get("fps_limit"),
+        max_frames=deploy_d.get("max_frames"),
+    )
+
     # Execution controls
     exec_mode_str = get_env_val("YOLO_HAILO_EXECUTION_MODE", "auto")
     try:
@@ -362,6 +394,7 @@ def load_config(
         quantization=quant_cfg,
         validation=val_cfg,
         artifacts=art_cfg,
+        deployment=deploy_cfg,
         run_id=get_env_val("YOLO_HAILO_RUN_ID", None),
         execution_mode=exec_mode,
         dry_run=get_env_val("YOLO_HAILO_DRY_RUN", False, bool),
@@ -384,6 +417,7 @@ def load_config(
         if "imgsz" in cli_overrides and cli_overrides["imgsz"] is not None:
             app_cfg.training.imgsz = int(cli_overrides["imgsz"])
             app_cfg.export.imgsz = int(cli_overrides["imgsz"])
+            app_cfg.deployment.imgsz = int(cli_overrides["imgsz"])
         if "batch" in cli_overrides and cli_overrides["batch"] is not None:
             app_cfg.training.batch = int(cli_overrides["batch"])
         if "seed" in cli_overrides and cli_overrides["seed"] is not None:
@@ -408,6 +442,26 @@ def load_config(
             app_cfg.hailo.require_hardware = bool(cli_overrides["require_hardware"])
         if "measure_power" in cli_overrides and cli_overrides["measure_power"] is not None:
             app_cfg.hailo.measure_power = bool(cli_overrides["measure_power"])
+
+        # Deployment CLI overrides
+        if "source" in cli_overrides and cli_overrides["source"]:
+            app_cfg.deployment.source = str(cli_overrides["source"])
+        if "deploy_backend" in cli_overrides and cli_overrides["deploy_backend"]:
+            app_cfg.deployment.backend = str(cli_overrides["deploy_backend"])
+        if "conf" in cli_overrides and cli_overrides["conf"] is not None:
+            app_cfg.deployment.conf_threshold = float(cli_overrides["conf"])
+        if "iou" in cli_overrides and cli_overrides["iou"] is not None:
+            app_cfg.deployment.iou_threshold = float(cli_overrides["iou"])
+        if "show" in cli_overrides and cli_overrides["show"] is not None:
+            app_cfg.deployment.show = bool(cli_overrides["show"])
+        if "save_dir" in cli_overrides and cli_overrides["save_dir"]:
+            app_cfg.deployment.save_dir = str(cli_overrides["save_dir"])
+        if "camera_type" in cli_overrides and cli_overrides["camera_type"]:
+            app_cfg.deployment.camera_type = str(cli_overrides["camera_type"])
+        if "fps_limit" in cli_overrides and cli_overrides["fps_limit"] is not None:
+            app_cfg.deployment.fps_limit = float(cli_overrides["fps_limit"])
+        if "max_frames" in cli_overrides and cli_overrides["max_frames"] is not None:
+            app_cfg.deployment.max_frames = int(cli_overrides["max_frames"])
 
     app_cfg.validate()
     return app_cfg

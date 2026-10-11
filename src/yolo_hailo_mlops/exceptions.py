@@ -299,3 +299,23 @@ class ArtifactIntegrityError(YoloHailoError):
             remediation=remediation or "Re-run the producer phase with --force to regenerate the corrupted artifact.",
             artifact=artifact,
         )
+
+
+class DeploymentError(YoloHailoError):
+    """Raised when live deployment camera initialization, frame ingestion, or streaming fails."""
+
+    def __init__(
+        self,
+        message: str,
+        code: str = "E-DEPLOY-001",
+        phase: str = "deployment",
+        remediation: Optional[str] = None,
+        artifact: Optional[str] = None,
+    ) -> None:
+        super().__init__(
+            message=message,
+            code=code,
+            phase=phase,
+            remediation=remediation or "Check input source connectivity, camera device index, file path, or display settings.",
+            artifact=artifact,
+        )
