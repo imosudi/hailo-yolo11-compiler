@@ -67,6 +67,8 @@ Depending on your engineering role, follow these recommended reading sequences:
 | **Extract Calibration Set** | `python train_and_compile.py calibrate --count 200` | [calibration.md](calibration.md) |
 | **Compile Hailo-8L HEF** | `python train_and_compile.py compile` | [hailo.md](hailo.md) |
 | **Validate Accuracy & Speed** | `python train_and_compile.py validate` | [benchmarking_and_evaluation.md](benchmarking_and_evaluation.md) |
+| **Live Model Deployment** | `python train_and_compile.py deploy --source 0 --hailo` | [user_guide.md](user_guide.md#10-live-model-deployment-deploy) |
+| **CPU Operations & Benchmark** | `python operations.py --status` | [user_guide.md](user_guide.md#11-cpu-multithreading--operations-engine-operationspy) |
 | **End-to-End Orchestration** | `python train_and_compile.py all` | [user_guide.md](user_guide.md#end-to-end-execution) |
 | **Execute Test Suite** | `pytest -v` | [architecture.md](architecture.md#testing-strategy) |
 

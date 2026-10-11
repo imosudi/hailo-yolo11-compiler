@@ -22,6 +22,9 @@ This manual provides an exhaustive operational walkthrough for the **`hailo-yolo
 7. [Dry-Run Planning & Inspection](#7-dry-run-planning--inspection)
 8. [Forced Regeneration of Artefacts](#8-forced-regeneration-of-artefacts)
 9. [Interpreting Generated Reports & Manifests](#9-interpreting-generated-reports--manifests)
+10. [Live Model Deployment (`deploy`)](#10-live-model-deployment-deploy)
+11. [CPU Multithreading & Operations Engine (`operations.py`)](#11-cpu-multithreading--operations-engine-operationspy)
+12. [Licensing, Academic Provenance & Citation](#12-licensing-academic-provenance--citation)
 
 ---
 
@@ -425,3 +428,87 @@ Contains full cryptographic details, environment information, and metric provena
 
 ### 2. `run_report.md` (Human-Readable Markdown Report)
 Contains formatted execution summaries, mAP comparison tables, latency percentiles, and hardware telemetry graphs ready for inclusion in engineering documentation.
+
+---
+
+## 10. Live Model Deployment (`deploy`)
+
+The `deploy` phase provides unified real-time streaming inference across edge cameras, pre-recorded video files, and image directories.
+
+### Live Camera Ingestion
+
+The deployment engine supports multiple camera backends configured via `--camera-type {auto, opencv, picamera2, libcamera}`:
+- **Raspberry Pi AI Camera (Sony IMX500)** & **Camera Module 3**: Natively ingested using `picamera2` or the direct hardware pipeline stream (`rpicam-vid` / `libcamera-vid`).
+- **USB Webcams**: Captured via V4L2 `cv2.VideoCapture` with automatic enumeration and proactive filtering of Raspberry Pi internal ISP, CFE, and PiSP memory nodes.
+
+```bash
+# Live deployment on physical Hailo-8L NPU
+python train_and_compile.py deploy --source 0 --hailo
+
+# Native Raspberry Pi AI Camera (Sony IMX500) via Picamera2
+python train_and_compile.py deploy --source 0 --camera-type picamera2 --hailo
+
+# Fallback or comparative multi-threaded CPU execution
+python train_and_compile.py deploy --source 0 --cpu --threads 4
+```
+
+### Continuous Hardware Telemetry Streaming
+
+The pipeline can record live edge hardware metrics (accelerator power, CPU temperatures, thermal zones, core frequencies, and inference latency) into structured JSONL:
+```bash
+python train_and_compile.py deploy --source 0 --hailo --telemetry --telemetry-path runs/live_telemetry.jsonl
+```
+Every recorded data point includes an active inference device label (`Device: NPU (Hailo HAT)` vs. `Device: CPU`) to enable rigorous edge performance evaluation.
+
+---
+
+## 11. CPU Multithreading & Operations Engine (`operations.py`)
+
+To maximize pipeline performance during host-bound operations, the compiler includes a dedicated operations optimization engine ([operations.py](../operations.py)):
+
+### Standalone Status & Benchmark Tools
+
+```bash
+# Display detected hardware capacity, thread pools, and active BLAS/MKL bindings
+python operations.py --status
+
+# Run multi-threaded CPU matrix operation benchmark
+python operations.py --benchmark
+```
+
+### Multithreaded Subsystems
+- **ONNX Runtime**: Automatically configured with `ExecutionMode.ORT_PARALLEL`, intra-op and inter-op thread pools.
+- **PyTorch**: Inter-op and intra-op thread counts tuned to host physical core capacity.
+- **OpenCV**: Vectorized optimizations enabled (`cv2.setUseOptimized(True)`) with thread pool matching available cores.
+- **Data Loaders & Validation**: Parallel multi-threaded calibration sampling and dataset integrity checks.
+- **CLI Parameter**: Specify `--threads <N>` or `--cpu-threads <N>` on any pipeline command to override automatic thread pool sizing.
+
+---
+
+## 12. Licensing, Academic Provenance & Citation
+
+### Licensing & Legal Terms
+
+This research software and associated architectural artefacts are published under the open-source **BSD 3-Clause Licence**. Refer to the [LICENSE](../LICENSE) file for comprehensive legal terms.
+
+```text
+Copyright (c) 2026, Isiaka Mosudi, FHTW.
+All rights reserved.
+```
+
+Developed within the academic framework of Master's thesis requirements. Department of Electronic Engineering and Entrepreneurship, University of Applied Sciences Technikum Wien (FH Technikum Wien), Vienna, Austria.
+
+### Academic Citation
+
+If you utilise this compiler, MLOps orchestration framework, or benchmarking architecture in academic research, please cite:
+
+```bibtex
+@software{hailo_yolo11_compiler_2026,
+  author    = {Isiaka, Mosudi},
+  title     = {hailo-yolo11-compiler: Reproducible YOLO11 to Hailo-8L Edge AI MLOps Compilation and Evaluation Pipeline},
+  year      = {2026},
+  publisher = {GitHub},
+  url       = {https://github.com/imosudi/hailo-yolo11-compiler},
+  license   = {BSD-3-Clause}
+}
+```

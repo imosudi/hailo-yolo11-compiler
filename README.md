@@ -31,7 +31,7 @@ A reproducible, state-machine driven Edge AI MLOps compiler and evaluation pipel
 18. [Podman & Rootless Container Execution](#18-podman--rootless-container-execution)
 19. [Testing & Quality Assurance](#19-testing--quality-assurance)
 20. [Documentation Directory](#20-documentation-directory)
-21. [Licence](#21-licence)
+21. [Licensing, Academic Provenance & Citation](#21-licensing-academic-provenance--citation)
 
 ---
 
@@ -508,26 +508,44 @@ Captured hardware metrics include CPU utilisation, memory consumption, storage I
 ## 14. Live Model Deployment (Camera, Video & Images Directory)
 
 The pipeline provides unified real-time streaming inference deployment on the physical **Raspberry Pi 5 + Hailo-8L accelerator**, with support for:
-1. **Live Camera**: Raspberry Pi CSI Camera Module (via `picamera2` / `libcamera`) or USB webcams (via V4L2 `cv2.VideoCapture`).
+1. **Live Camera**: Raspberry Pi AI Camera (Sony IMX500), Raspberry Pi Camera Module 3 / CSI (via `picamera2` or native `rpicam-vid`/`libcamera` stream), or USB webcams (via V4L2 `cv2.VideoCapture` with automatic PiSP/CFE hardware node filtering).
 2. **Recorded Video**: Video file streaming and frame-by-frame inference (`.mp4`, `.avi`, `.mkv`, etc.).
 3. **Images Directory**: Batch evaluation and annotation of directory of images (`.jpg`, `.png`, etc.) or single image file.
 
 ```bash
-# 1. Live Camera Deployment (Auto-detects Hailo-8L, opens live window with HUD overlay)
-python train_and_compile.py deploy --source camera
+# 1. Live Camera Deployment on Hailo-8L NPU (Sony IMX500 / CSI / USB)
+python train_and_compile.py deploy --source 0 --hailo
 
-# 2. Camera deployment with output recording and FPS limit
-python train_and_compile.py deploy --source 0 --save-dir runs/deploy_output --fps-limit 30
+# 2. Native Raspberry Pi CSI / AI Camera with Picamera2 / libcamera
+python train_and_compile.py deploy --source 0 --camera-type picamera2 --hailo
 
-# 3. Recorded Video Inference with Hailo-8L
-python train_and_compile.py deploy --source /path/to/test_video.mp4 --save-dir runs/deploy_video
+# 3. Host CPU Deployment with Multi-Threaded Acceleration
+python train_and_compile.py deploy --source 0 --cpu --threads 4
 
-# 4. Images Directory Batch Inference in Headless Mode
+# 4. Deployment with Background Hardware Telemetry Recording (Auto-tagged NPU vs CPU)
+python train_and_compile.py deploy --source 0 --hailo --telemetry --telemetry-path runs/live_telemetry.jsonl
+
+# 5. Recorded Video Inference with Output Saving and Frame-Rate Limit
+python train_and_compile.py deploy --source /path/to/test_video.mp4 --save-dir runs/deploy_video --fps-limit 30
+
+# 6. Images Directory Batch Inference in Headless Mode
 python train_and_compile.py deploy --source data/dataset/images/val --no-show --save-dir runs/deploy_images
-
-# 5. Fallback or Comparative ONNX Runtime CPU Deployment
-python train_and_compile.py deploy --source camera --backend onnx --conf 0.35 --iou 0.45
 ```
+
+### Multithreaded CPU Operations & Hardware Acceleration
+
+The pipeline incorporates a dedicated operations optimization engine ([operations.py](operations.py)) ensuring high CPU throughput for host-side preprocessing, ONNX Runtime inference, PyTorch fallback, and dataset validation:
+
+```bash
+# Inspect CPU core capacity, thread pools, and SIMD/BLAS bindings
+python operations.py --status
+
+# Execute multi-threaded CPU matrix operation benchmark
+python operations.py --benchmark
+```
+
+- **Runtime Flags**: Pass `--threads <N>` or `--cpu-threads <N>` (or set `YOLO_HAILO_CPU_THREADS=<N>`) to control worker allocations.
+- **Engine Opts**: Configures ONNX Runtime with `ExecutionMode.ORT_PARALLEL`, intra/inter-op threads, PyTorch thread pools, OpenCV optimizations (`cv2.setUseOptimized`), and parallel DataLoaders.
 
 ### Interactive Runtime Controls
 - **`q` or `ESC`**: Gracefully terminate deployment session and generate summary.
@@ -677,6 +695,30 @@ Comprehensive user manuals and architectural specifications are maintained in th
 
 ---
 
-## 21. Licence
+## 21. Licensing, Academic Provenance & Citation
 
-Licensed under the **BSD 3-Clause Licence**. See [LICENSE](LICENSE) for details.
+### Licensing & Legal Terms
+
+This research software and associated architectural artefacts are published under the open-source **BSD 3-Clause Licence**. Refer to the [LICENSE](LICENSE) file for comprehensive legal terms.
+
+```text
+Copyright (c) 2026, Isiaka Mosudi, FHTW.
+All rights reserved.
+```
+
+Developed within the academic framework of Master's thesis requirements. Department of Electronic Engineering and Entrepreneurship, University of Applied Sciences Technikum Wien (FH Technikum Wien), Vienna, Austria.
+
+### Academic Citation
+
+If you utilise this compiler, MLOps orchestration framework, or benchmarking architecture in academic research, please cite:
+
+```bibtex
+@software{hailo_yolo11_compiler_2026,
+  author    = {Isiaka, Mosudi},
+  title     = {hailo-yolo11-compiler: Reproducible YOLO11 to Hailo-8L Edge AI MLOps Compilation and Evaluation Pipeline},
+  year      = {2026},
+  publisher = {GitHub},
+  url       = {https://github.com/imosudi/hailo-yolo11-compiler},
+  license   = {BSD-3-Clause}
+}
+```

@@ -14,6 +14,7 @@ This guide provides an end-to-end operational manual for assembling, configuring
 6. [User Group & Device Permissions](#6-user-group--device-permissions)
 7. [Thermal Management & Power Requirements](#7-thermal-management--power-requirements)
 8. [Hardware Health Monitoring](#8-hardware-health-monitoring)
+9. [Camera Hardware Setup (AI Camera Sony IMX500 & CSI Modules)](#9-camera-hardware-setup-ai-camera-sony-imx500--csi-modules)
 
 ---
 
@@ -230,3 +231,30 @@ vcgencmd get_throttled
 - `0x80000`: Soft temperature limit has occurred since boot.
 
 If any undervoltage bit is active, immediately replace the power supply and cable.
+
+---
+
+## 9. Camera Hardware Setup (AI Camera Sony IMX500 & CSI Modules)
+
+The Raspberry Pi 5 features two dual-lane MIPI CSI/DSI ports (`CAM/DISP0` and `CAM/DISP1`) powered by the RP1 I/O controller and Raspberry Pi Image Signal Processor (PiSP).
+
+### Supported Sensor Configurations
+- **Raspberry Pi AI Camera (Sony IMX500)**: 12.3MP sensor with on-sensor neural processing, seamlessly paired with the Hailo-8L NPU for high-efficiency edge analytics.
+- **Raspberry Pi Camera Module 3 (Sony IMX708)**: Autofocus HDR sensor.
+- **Raspberry Pi High Quality Camera (Sony IMX477)**.
+- **Standard V4L2 USB Webcams**: Placed on USB 3.0 ports.
+
+### Physical Installation
+1. Power off the Raspberry Pi 5.
+2. Lift the collar of `CAM/DISP0` (or `CAM/DISP1`) on the Raspberry Pi 5 board.
+3. Insert the mini 22-pin to 15-pin FPC camera ribbon cable with the shiny contacts facing toward the HDMI ports.
+4. Close the locking collar securely.
+
+### Software Verification & Testing
+```bash
+# Verify camera detection via libcamera
+rpicam-hello --list-cameras
+
+# Run live hardware deployment with picamera2 and Hailo-8L
+python train_and_compile.py deploy --source 0 --camera-type picamera2 --hailo
+```
