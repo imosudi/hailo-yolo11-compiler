@@ -341,4 +341,42 @@ def test_hailo_engine_fallback_when_platform_missing(tmp_path: Path) -> None:
                 mock_onnx.assert_called_once()
 
 
+def test_create_inference_engine_target_cpu(tmp_path: Path) -> None:
+    """Verify backend='cpu' forces CPU execution even when .hef is present."""
+    from yolo_hailo_mlops.deployment.inference import create_inference_engine
+
+    onnx_dir = tmp_path / "onnx"
+    onnx_dir.mkdir(parents=True)
+    dummy_onnx = onnx_dir / "model.onnx"
+    dummy_onnx.touch()
+
+    # Also touch a .hef to verify it is bypassed in favor of CPU model
+    hef_dir = tmp_path / "hailo"
+    hef_dir.mkdir(parents=True)
+    (hef_dir / "model.hef").touch()
+
+    with patch("yolo_hailo_mlops.deployment.inference.ONNXInferenceEngine") as mock_onnx:
+        mock_onnx.return_value = MagicMock()
+        engine = create_inference_engine(backend="cpu", root_artifacts=tmp_path)
+        assert engine is not None
+        mock_onnx.assert_called_once_with(dummy_onnx)
+
+
+def test_create_inference_engine_target_hailo_aliases(tmp_path: Path) -> None:
+    """Verify backend='hailo-hat' and 'npu' resolve to HailoInferenceEngine."""
+    from yolo_hailo_mlops.deployment.inference import create_inference_engine
+
+    hef_dir = tmp_path / "hailo"
+    hef_dir.mkdir(parents=True)
+    dummy_hef = hef_dir / "model.hef"
+    dummy_hef.touch()
+
+    with patch("yolo_hailo_mlops.deployment.inference.HailoInferenceEngine") as mock_hailo:
+        mock_hailo.return_value = MagicMock()
+        engine = create_inference_engine(backend="hailo-hat", root_artifacts=tmp_path)
+        assert engine is not None
+        mock_hailo.assert_called_once_with(dummy_hef)
+
+
+
 

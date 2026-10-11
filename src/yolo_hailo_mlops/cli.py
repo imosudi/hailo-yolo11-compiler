@@ -909,8 +909,15 @@ def main() -> None:
     # Live deployment options
     parser.add_argument("--source", type=str, default=None,
                         help="Input source for live deployment: camera index ('0'), video file path, or images directory")
-    parser.add_argument("--backend", choices=["auto", "hailo", "onnx", "pytorch"], default="auto",
-                        help="Execution backend for live deployment ('auto', 'hailo', 'onnx', 'pytorch')")
+    parser.add_argument("--backend", choices=["auto", "hailo", "hailo-hat", "npu", "cpu", "onnx", "pytorch"], default="auto",
+                        help="Execution backend for live deployment ('auto', 'hailo'/'npu', 'cpu', 'onnx', 'pytorch')")
+    parser.add_argument("--target", "--accelerator", dest="target",
+                        choices=["auto", "hailo", "hailo-hat", "npu", "cpu"], default=None,
+                        help="Target deployment accelerator: 'hailo'/'hailo-hat'/'npu' (Raspberry Pi AI HAT+) or 'cpu' (Host CPU)")
+    parser.add_argument("--cpu", dest="use_cpu", action="store_true", default=False,
+                        help="Force deployment execution on Host CPU (PyTorch/ONNX)")
+    parser.add_argument("--hailo", "--npu", "--hailo-hat", dest="use_hailo", action="store_true", default=False,
+                        help="Force deployment execution on Raspberry Pi AI HAT+ Hailo-8L NPU")
     parser.add_argument("--conf", type=float, default=None,
                         help="Confidence threshold for live deployment (default 0.25)")
     parser.add_argument("--iou", type=float, default=None,
@@ -921,14 +928,28 @@ def main() -> None:
                         help="Run live deployment in headless mode without GUI window")
     parser.add_argument("--output-dir", "--save-dir", type=str, default=None,
                         help="Directory to save annotated video or processed images")
-    parser.add_argument("--camera-type", choices=["auto", "opencv", "picamera2"], default="auto",
-                        help="Camera interface implementation ('auto', 'opencv', 'picamera2')")
+    parser.add_argument("--camera-type", choices=["auto", "opencv", "picamera2", "libcamera"], default="auto",
+                        help="Camera interface implementation ('auto', 'opencv', 'picamera2', 'libcamera')")
     parser.add_argument("--fps-limit", type=float, default=None,
                         help="Target FPS cap for playback or camera stream")
     parser.add_argument("--max-frames", type=int, default=None,
                         help="Maximum frames to process before terminating")
 
     args = parser.parse_args()
+
+    # Resolve deployment backend based on target/cpu/hailo/backend flags
+    deploy_backend = args.backend
+    if args.use_cpu:
+        deploy_backend = "cpu"
+    elif args.use_hailo:
+        deploy_backend = "hailo"
+    elif args.target:
+        deploy_backend = args.target.lower()
+        if deploy_backend in ("hailo-hat", "npu"):
+            deploy_backend = "hailo"
+    elif args.device and args.device.lower() in ("cpu", "hailo", "hailo-hat", "npu"):
+        dev_l = args.device.lower()
+        deploy_backend = "hailo" if dev_l in ("hailo", "hailo-hat", "npu") else "cpu"
 
     cli_overrides = {
         "model": args.model,
@@ -948,7 +969,7 @@ def main() -> None:
         "measure_power": args.measure_power,
         # Live deployment overrides
         "source": args.source,
-        "deploy_backend": args.backend,
+        "deploy_backend": deploy_backend,
         "conf": args.conf,
         "iou": args.iou,
         "show": args.show,

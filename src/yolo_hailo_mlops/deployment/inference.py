@@ -190,7 +190,7 @@ class HailoInferenceEngine(BaseInferenceEngine):
 
     @property
     def backend_name(self) -> str:
-        return "Hailo-8L Accelerator (PCIe)"
+        return "Hailo-8L NPU (Raspberry Pi AI HAT+ PCIe)"
 
     @property
     def is_hardware_accelerated(self) -> bool:
@@ -270,7 +270,7 @@ class ONNXInferenceEngine(BaseInferenceEngine):
 
     @property
     def backend_name(self) -> str:
-        return "ONNX Runtime (CPU Fallback)"
+        return "Host CPU (ONNX Runtime)"
 
     @property
     def is_hardware_accelerated(self) -> bool:
@@ -320,7 +320,7 @@ class PyTorchInferenceEngine(BaseInferenceEngine):
 
     @property
     def backend_name(self) -> str:
-        return "PyTorch (CPU Fallback)"
+        return "Host CPU (PyTorch)"
 
     @property
     def is_hardware_accelerated(self) -> bool:
@@ -356,21 +356,42 @@ def create_inference_engine(
     """Create inference engine according to target availability and backend preferences."""
     root = Path(root_artifacts) if root_artifacts else Path("artifacts")
 
+    norm_backend = (backend or "auto").lower()
+    if norm_backend in ("hailo-hat", "npu"):
+        norm_backend = "hailo"
+
     # Resolve candidate model paths if not specified
     if not model_path:
-        # Search canonical artifacts locations
-        candidates = [
-            root / "latest" / "hailo" / "model.hef",
-            root / "hailo" / "model.hef",
-            root / "runs" / "latest" / "hailo" / "model.hef",
-            root / "latest" / "onnx" / "model.onnx",
-            root / "onnx" / "model.onnx",
-            root / "runs" / "latest" / "onnx" / "model.onnx",
-            root / "latest" / "pytorch" / "best.pt",
-            root / "pytorch" / "best.pt",
-            root / "runs" / "latest" / "pytorch" / "best.pt",
-            Path("yolo11n.pt"),
-        ]
+        # Filter candidate search list based on requested compute target
+        if norm_backend in ("cpu", "pytorch", "onnx"):
+            candidates = [
+                root / "latest" / "onnx" / "model.onnx",
+                root / "onnx" / "model.onnx",
+                root / "runs" / "latest" / "onnx" / "model.onnx",
+                root / "latest" / "pytorch" / "best.pt",
+                root / "pytorch" / "best.pt",
+                root / "runs" / "latest" / "pytorch" / "best.pt",
+                Path("yolo11n.pt"),
+            ]
+        elif norm_backend == "hailo":
+            candidates = [
+                root / "latest" / "hailo" / "model.hef",
+                root / "hailo" / "model.hef",
+                root / "runs" / "latest" / "hailo" / "model.hef",
+            ]
+        else:
+            candidates = [
+                root / "latest" / "hailo" / "model.hef",
+                root / "hailo" / "model.hef",
+                root / "runs" / "latest" / "hailo" / "model.hef",
+                root / "latest" / "onnx" / "model.onnx",
+                root / "onnx" / "model.onnx",
+                root / "runs" / "latest" / "onnx" / "model.onnx",
+                root / "latest" / "pytorch" / "best.pt",
+                root / "pytorch" / "best.pt",
+                root / "runs" / "latest" / "pytorch" / "best.pt",
+                Path("yolo11n.pt"),
+            ]
         resolved_path = None
         for cand in candidates:
             if cand.is_file():
@@ -379,17 +400,22 @@ def create_inference_engine(
 
         # Fallback: find most recent compiled HEF or ONNX within runs directory
         if not resolved_path and root.is_dir():
-            hef_runs = sorted(root.glob("runs/**/hailo/*.hef"), key=lambda p: p.stat().st_mtime, reverse=True)
-            if hef_runs:
-                resolved_path = hef_runs[0]
-            else:
+            if norm_backend != "cpu":
+                hef_runs = sorted(root.glob("runs/**/hailo/*.hef"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if hef_runs:
+                    resolved_path = hef_runs[0]
+            if not resolved_path:
                 onnx_runs = sorted(root.glob("runs/**/onnx/*.onnx"), key=lambda p: p.stat().st_mtime, reverse=True)
                 if onnx_runs:
                     resolved_path = onnx_runs[0]
+            if not resolved_path:
+                pt_runs = sorted(root.glob("runs/**/pytorch/*.pt"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if pt_runs:
+                    resolved_path = pt_runs[0]
 
         if not resolved_path:
             raise DeploymentError(
-                "No trained or compiled model artifact found. Specify '--model <path>' explicitly.",
+                f"No suitable model artifact found for target '{backend}'. Specify '--model <path>' explicitly.",
                 code="E-DEPLOY-MDL-001",
             )
         model_p = resolved_path
@@ -405,18 +431,52 @@ def create_inference_engine(
     ext = model_p.suffix.lower()
 
     # Explicit backend requests
-    if backend == "hailo":
+    if norm_backend == "hailo":
         if ext != ".hef":
-            raise DeploymentError(
-                f"Hailo backend requires a compiled .hef binary, got '{model_p.name}'",
-                code="E-DEPLOY-BCK-001",
-                artifact=str(model_p),
-            )
+            # Search for compiled .hef in canonical artifact locations
+            hef_alt = None
+            for cand in [root / "latest" / "hailo" / "model.hef", root / "hailo" / "model.hef", root / "runs" / "latest" / "hailo" / "model.hef"]:
+                if cand.is_file():
+                    hef_alt = cand
+                    break
+            if hef_alt:
+                model_p = hef_alt
+                ext = ".hef"
+            else:
+                raise DeploymentError(
+                    f"Hailo Hat NPU backend requires a compiled .hef binary, got '{model_p.name}'",
+                    code="E-DEPLOY-BCK-001",
+                    artifact=str(model_p),
+                    remediation="Compile model to HEF with 'python train_and_compile.py compile' or use '--target cpu'.",
+                )
         return HailoInferenceEngine(model_p)
 
-    elif backend == "onnx":
+    elif norm_backend == "cpu":
+        if ext == ".hef":
+            # Locate corresponding .onnx or .pt for CPU inference
+            alt_cpu = None
+            for cand in [root / "latest" / "onnx" / "model.onnx", root / "onnx" / "model.onnx", root / "latest" / "pytorch" / "best.pt", root / "pytorch" / "best.pt", Path("yolo11n.pt")]:
+                if cand.is_file():
+                    alt_cpu = cand
+                    break
+            if alt_cpu:
+                model_p = alt_cpu
+                ext = model_p.suffix.lower()
+            else:
+                raise DeploymentError(
+                    "CPU deployment requires an .onnx or .pt model, but only .hef was provided.",
+                    code="E-DEPLOY-BCK-003",
+                    remediation="Export to ONNX ('python train_and_compile.py export') or specify '--model yolo11n.pt'.",
+                )
+        if ext == ".onnx":
+            return ONNXInferenceEngine(model_p)
+        elif ext == ".pt":
+            return PyTorchInferenceEngine(model_p)
+        else:
+            return PyTorchInferenceEngine(model_p)
+
+    elif norm_backend == "onnx":
         if ext != ".onnx":
-            # Attempt to locate corresponding onnx
             onnx_alt = root / "onnx" / "model.onnx"
             if onnx_alt.is_file():
                 model_p = onnx_alt
@@ -427,7 +487,7 @@ def create_inference_engine(
                 )
         return ONNXInferenceEngine(model_p)
 
-    elif backend == "pytorch":
+    elif norm_backend == "pytorch":
         return PyTorchInferenceEngine(model_p)
 
     # Auto resolution
