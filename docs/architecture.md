@@ -26,6 +26,10 @@ flowchart TD
 
 The pipeline strictly enforces three distinct execution tiers to preserve research integrity and prevent fabricated metrics or hidden fallbacks:
 
+<p align="center">
+  <img src="architecture.svg" alt="Execution Boundaries Architecture Diagram" width="100%">
+</p>
+
 ```text
 ┌───────────────────────────────────────────────────────────────┐
 │                    PORTABLE ML BOUNDARY                       │

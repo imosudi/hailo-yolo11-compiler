@@ -65,6 +65,10 @@ Every phase in the pipeline is managed by an explicit, deterministic state machi
 
 ## 2. End-to-End Execution Sequence
 
+<p align="center">
+  <img src="pipeline.svg" alt="YOLO11 to Hailo-8L Compilation Lifecycle Flowchart" width="100%">
+</p>
+
 ```text
 Dataset YAML
      │

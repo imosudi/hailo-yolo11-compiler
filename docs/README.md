@@ -1,5 +1,9 @@
 # Documentation Hub & Sitemap
 
+<p align="center">
+  <img src="logo.svg" alt="Hailo YOLO11 Compiler Logo" width="480">
+</p>
+
 Welcome to the comprehensive technical documentation for **`hailo-yolo11-compiler`**. This directory contains user manuals, architectural specifications, deployment runbooks, and operational references for compiling and deploying Ultralytics YOLO11 models to the **Hailo-8L AI HAT+ on Raspberry Pi 5**.
 
 ---
@@ -9,6 +13,12 @@ Welcome to the comprehensive technical documentation for **`hailo-yolo11-compile
 ```text
 docs/
 ├── README.md                      # Documentation hub & sitemap (this document)
+│
+├── Visual Artefacts & Diagrams:
+│   ├── banner.svg                 # Repository banner illustrating the end-to-end workflow
+│   ├── logo.svg                   # Vector icon and logotype motif
+│   ├── architecture.svg           # Three-tier execution boundary architecture diagram
+│   └── pipeline.svg               # Twelve-stage compilation lifecycle vector flowchart
 │
 ├── User Guides & Manuals:
 │   ├── user_guide.md              # Complete end-to-end user guide and CLI reference

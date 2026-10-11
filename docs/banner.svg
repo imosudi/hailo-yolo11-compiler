@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="520" viewBox="0 0 1600 520" role="img" aria-labelledby="title desc">
+  <title id="title">Hailo YOLO11 Compiler project banner</title><desc id="desc">Project banner illustrating the model training, ONNX export, INT8 quantisation and Hailo-8L deployment workflow.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#07111f"/><stop offset=".55" stop-color="#0c1d31"/><stop offset="1" stop-color="#102b3b"/></linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2dd4bf"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
+    <pattern id="grid" width="42" height="42" patternUnits="userSpaceOnUse"><path d="M42 0H0v42" fill="none" stroke="#8ca9c6" stroke-opacity=".09"/></pattern>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0 0 6 3 0 6Z" fill="#7394b0"/></marker>
+  </defs>
+  <rect width="1600" height="520" rx="28" fill="url(#bg)"/><rect width="1600" height="520" rx="28" fill="url(#grid)"/>
+  <circle cx="1320" cy="130" r="220" fill="#2dd4bf" opacity=".05"/><circle cx="1450" cy="400" r="190" fill="#60a5fa" opacity=".06"/>
+  <g transform="translate(90 76)"><rect width="86" height="86" rx="20" fill="#10243a" stroke="#2dd4bf" stroke-width="2"/><path d="M17 28h17l9-9 9 9h17M17 58h17l9 9 9-9h17M28 17v17l-9 9 9 9v17M58 17v17l9 9-9 9v17" fill="none" stroke="url(#accent)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><rect x="34" y="34" width="18" height="18" rx="5" fill="url(#accent)"/></g>
+  <g font-family="Inter,Segoe UI,Arial,sans-serif"><text x="202" y="111" fill="#f8fafc" font-size="25" font-weight="700" letter-spacing="3">EDGE AI COMPILER PIPELINE</text><text x="90" y="226" fill="#f8fafc" font-size="65" font-weight="800" letter-spacing="-2">hailo-yolo11-compiler</text><text x="94" y="278" fill="#b7c9dc" font-size="25">Reproducible YOLO11 → ONNX → INT8 → Hailo-8L HEF</text>
+    <g transform="translate(94 326)" font-size="16" font-weight="600" text-anchor="middle">
+      <rect width="145" height="43" rx="21" fill="#163b48" stroke="#2dd4bf"/><text x="72.5" y="27" fill="#99f6e4">Python 3.10+</text>
+      <rect x="157" width="145" height="43" rx="21" fill="#163b48" stroke="#2dd4bf"/><text x="229.5" y="27" fill="#99f6e4">Python 3.12+</text>
+      <rect x="314" width="170" height="43" rx="21" fill="#182f4d" stroke="#60a5fa"/><text x="399" y="27" fill="#bfdbfe">Hailo-8L · 13 TOPS</text>
+      <rect x="496" width="160" height="43" rx="21" fill="#1b3040" stroke="#5eead4"/><text x="576" y="27" fill="#ccfbf1">Raspberry Pi 5</text>
+      <rect x="668" width="145" height="43" rx="21" fill="#243044" stroke="#64748b"/><text x="740.5" y="27" fill="#e2e8f0">BSD-3-Clause</text>
+    </g>
+    <text x="94" y="466" fill="#7f9ab5" font-size="15" letter-spacing="1.2">REPEATABLE BUILDS · EXPLICIT QUALITY GATES · AUDITABLE ARTEFACTS</text>
+  </g>
+  <g transform="translate(930 204)" font-family="Inter,Arial,sans-serif" text-anchor="middle">
+    <g stroke="#7394b0" stroke-width="3" fill="none" marker-end="url(#arrow)"><path d="M104 56h48"/><path d="M264 56h48"/><path d="M424 56h48"/></g>
+    <g stroke-width="2"><rect width="100" height="112" rx="17" fill="#122b3b" stroke="#2dd4bf"/><rect x="160" width="100" height="112" rx="17" fill="#14283f" stroke="#60a5fa"/><rect x="320" width="100" height="112" rx="17" fill="#1c2c3c" stroke="#a5b4fc"/><rect x="480" width="100" height="112" rx="17" fill="#153a3c" stroke="#2dd4bf"/></g>
+    <g font-size="20" font-weight="700"><text x="50" y="46" fill="#99f6e4">YOLO11</text><text x="210" y="46" fill="#bfdbfe">ONNX</text><text x="370" y="46" fill="#c7d2fe">INT8</text><text x="530" y="46" fill="#99f6e4">HEF</text></g><g font-size="13" fill="#b7c9dc"><text x="50" y="73">Train</text><text x="210" y="73">Export</text><text x="370" y="73">Quantise</text><text x="530" y="73">Deploy</text></g>
+  </g>
+</svg>

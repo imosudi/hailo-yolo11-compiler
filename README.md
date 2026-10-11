@@ -1,5 +1,9 @@
 # hailo-yolo11-compiler
 
+<p align="center">
+  <img src="docs/banner.svg" alt="Hailo YOLO11 Compiler Banner" width="100%">
+</p>
+
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg)](https://www.python.org/)
 [![Licence: BSD 3-Clause](https://img.shields.io/badge/Licence-BSD_3--Clause-green.svg)](LICENSE)
 [![Target: Hailo-8L](https://img.shields.io/badge/Target-Hailo--8L%20AI%20HAT%2B-orange.svg)](https://hailo.ai/)
@@ -704,6 +708,12 @@ Comprehensive user manuals and architectural specifications are maintained in th
 - [Experiment Reproducibility & Result Integrity](docs/reproducibility.md)
 - [Troubleshooting & Error Codes Reference Manual](docs/troubleshooting.md)
 - [Security Policy & Threat Model](SECURITY.md)
+
+### Visual Artefacts & Architectural Diagrams
+- [Repository Banner Diagram](docs/banner.svg)
+- [Project Logo Motif](docs/logo.svg)
+- [Execution Boundaries Architecture Diagram](docs/architecture.svg)
+- [Compilation Lifecycle Flowchart](docs/pipeline.svg)
 
 ---
 
