@@ -253,3 +253,4 @@ runs/
 hailo-yolo11-compiler.md
 edge-vision-monitor.md
 *.whl
+#telemetry.jsonl
