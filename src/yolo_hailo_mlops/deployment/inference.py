@@ -49,7 +49,7 @@ class BaseInferenceEngine(ABC):
 
 
 def try_auto_install_hailort() -> bool:
-    """Attempt non-interactive apt installation of python3-hailort on Raspberry Pi OS."""
+    """Attempt non-interactive apt installation of hailo-all / python3-hailort on Raspberry Pi OS."""
     import shutil
     import subprocess
     import sys
@@ -58,15 +58,20 @@ def try_auto_install_hailort() -> bool:
     try:
         res = subprocess.run(["sudo", "-n", "true"], capture_output=True, timeout=2)
         if res.returncode == 0:
-            print("[INFO] Attempting automated installation of python3-hailort via apt...")
+            print("[INFO] Attempting automated installation of HailoRT packages via apt...")
+            pkgs = ["python3-hailort", "hailort"]
+            cache_check = subprocess.run(["apt-cache", "show", "hailo-all"], capture_output=True, timeout=3)
+            if cache_check.returncode == 0:
+                pkgs.insert(0, "hailo-all")
+
             install_res = subprocess.run(
-                ["sudo", "-n", "apt-get", "install", "-y", "--no-install-recommends", "python3-hailort"],
+                ["sudo", "-n", "apt-get", "install", "-y"] + pkgs,
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=180,
             )
             if install_res.returncode == 0:
-                print("[SUCCESS] python3-hailort installed successfully.")
+                print("[SUCCESS] HailoRT packages installed successfully.")
                 from yolo_hailo_mlops.provenance import ensure_system_dist_packages
                 ensure_system_dist_packages()
                 return True
@@ -75,39 +80,109 @@ def try_auto_install_hailort() -> bool:
     return False
 
 
-def try_import_hailo_platform() -> Optional[Any]:
-    """Attempt to import hailo_platform, linking system packages or installing python3-hailort."""
-    from yolo_hailo_mlops.provenance import ensure_system_dist_packages
-    ensure_system_dist_packages()
+def try_import_hailo_platform() -> Tuple[Optional[Any], Optional[str], Optional[str]]:
+    """Attempt to import hailo_platform, linking system packages or installing python3-hailort.
 
-    try:
-        import hailo_platform  # type: ignore
-        return hailo_platform
-    except (ImportError, ModuleNotFoundError):
-        pass
-
-    # Try auto-installing python3-hailort via apt
-    if try_auto_install_hailort():
-        try:
-            import hailo_platform  # type: ignore
-            return hailo_platform
-        except (ImportError, ModuleNotFoundError):
-            pass
-
-    # Check for pre-built Hailo wheels in common locations
+    Returns (hailo_module, diagnostic_cause, remediation_hint).
+    """
     import glob
+    import importlib
+    import os
     import subprocess
     import sys
-    for pattern in ["/usr/share/hailort/*.whl", "/opt/hailo*/*.whl", "/home/*/.hailo*/*.whl"]:
-        for whl in glob.glob(pattern):
-            try:
-                subprocess.run([sys.executable, "-m", "pip", "install", whl], capture_output=True)
-                import hailo_platform  # type: ignore
-                return hailo_platform
-            except Exception:
-                pass
+    from yolo_hailo_mlops.provenance import ensure_system_dist_packages
 
-    return None
+    ensure_system_dist_packages()
+    importlib.invalidate_caches()
+
+    last_err: Optional[str] = None
+
+    # 1. Direct import
+    try:
+        import hailo_platform  # type: ignore
+        return hailo_platform, None, None
+    except Exception as exc:
+        last_err = str(exc)
+
+    # 2. Try importing hailort or pyhailort
+    try:
+        import hailort  # type: ignore
+        if hasattr(hailort, "VDevice") or hasattr(hailort, "HEF"):
+            return hailort, None, None
+    except Exception:
+        pass
+
+    # 3. Check for pre-built Hailo wheels in common locations
+    wheel_patterns = [
+        "/usr/share/hailort*/*.whl",
+        "/usr/share/hailort*/**/*.whl",
+        "/opt/hailo*/*.whl",
+        "/opt/hailo*/**/*.whl",
+        "/home/*/.hailo*/*.whl",
+        "/home/*/.hailo*/**/*.whl",
+        "/home/*/*.whl",
+    ]
+    for pattern in wheel_patterns:
+        for whl in glob.glob(pattern, recursive=True):
+            if "hailo" in whl.lower():
+                try:
+                    subprocess.run([sys.executable, "-m", "pip", "install", whl], capture_output=True, timeout=60)
+                    importlib.invalidate_caches()
+                    import hailo_platform  # type: ignore
+                    return hailo_platform, None, None
+                except Exception:
+                    pass
+
+    # 4. Try auto-installing via apt
+    if try_auto_install_hailort():
+        importlib.invalidate_caches()
+        try:
+            import hailo_platform  # type: ignore
+            return hailo_platform, None, None
+        except Exception as exc:
+            last_err = str(exc)
+
+    # 5. Check if system Python interpreter (/usr/bin/python3) has hailo_platform
+    system_py = "/usr/bin/python3"
+    curr_py = sys.executable
+    if os.path.isfile(system_py) and Path(system_py).resolve() != Path(curr_py).resolve():
+        try:
+            chk = subprocess.run(
+                [system_py, "-c", "import hailo_platform; print('OK')"],
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            if "OK" in chk.stdout:
+                sys_ver = subprocess.run(
+                    [system_py, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                    capture_output=True,
+                    text=True,
+                    timeout=2,
+                ).stdout.strip()
+                curr_ver = f"{sys.version_info.major}.{sys.version_info.minor}"
+                cause = (
+                    f"HailoRT Python library ('hailo_platform') is installed for system Python {sys_ver} ({system_py}), "
+                    f"but current environment is running Python {curr_ver} ({curr_py}). "
+                    f"C-extensions cannot be loaded across different Python minor versions."
+                )
+                remediation = (
+                    f"1. Run live Hailo deployment using system Python:\n"
+                    f"   {system_py} train_and_compile.py deploy --source 0 --camera-type picamera2 --hailo\n"
+                    f"2. Or run live deployment on Host CPU in current environment:\n"
+                    f"   python train_and_compile.py deploy --source 0 --camera-type picamera2 --cpu"
+                )
+                return None, cause, remediation
+        except Exception:
+            pass
+
+    cause = f"HailoRT Python library ('hailo_platform') is required for live accelerator deployment ({last_err or 'Module not found'})."
+    remediation = (
+        "1. Install Hailo software suite with 'sudo apt install -y hailo-all python3-hailort' on your Raspberry Pi 5.\n"
+        "2. Or run live deployment on Host CPU with:\n"
+        "   python train_and_compile.py deploy --source 0 --camera-type picamera2 --cpu"
+    )
+    return None, cause, remediation
 
 
 class HailoInferenceEngine(BaseInferenceEngine):
@@ -130,12 +205,12 @@ class HailoInferenceEngine(BaseInferenceEngine):
                 remediation="Ensure Raspberry Pi 5 AI HAT+ is seated securely and 'lspci' lists Hailo-8L.",
             )
 
-        hailo_mod = try_import_hailo_platform()
+        hailo_mod, diag_cause, diag_rem = try_import_hailo_platform()
         if hailo_mod is None:
             raise DeploymentError(
-                "HailoRT Python library ('hailo_platform') is required for live accelerator deployment.",
+                diag_cause or "HailoRT Python library ('hailo_platform') is required for live accelerator deployment.",
                 code="E-DEPLOY-RT-001",
-                remediation="Run './scripts/bootstrap.sh' or 'sudo apt install -y python3-hailort' on your Raspberry Pi 5.",
+                remediation=diag_rem or "Run './scripts/bootstrap.sh' or 'sudo apt install -y python3-hailort' on your Raspberry Pi 5.",
             )
 
         self._hailo = hailo_mod
@@ -497,7 +572,7 @@ def create_inference_engine(
             try:
                 return HailoInferenceEngine(model_p)
             except DeploymentError as e:
-                if backend != "hailo":
+                if norm_backend != "hailo":
                     print(f"[NOTICE] Hailo accelerator engine initialization note ({e.message}).")
                     # Fallback to ONNX or PyTorch if available
                     onnx_cand = root / "onnx" / "model.onnx"

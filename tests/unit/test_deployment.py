@@ -333,7 +333,7 @@ def test_hailo_engine_fallback_when_platform_missing(tmp_path: Path) -> None:
     mock_env.has_hailort = True
 
     with patch("yolo_hailo_mlops.deployment.inference.detect_hailo_environment", return_value=mock_env):
-        with patch("yolo_hailo_mlops.deployment.inference.try_import_hailo_platform", return_value=None):
+        with patch("yolo_hailo_mlops.deployment.inference.try_import_hailo_platform", return_value=(None, "missing hailo_platform", "install it")):
             with patch("yolo_hailo_mlops.deployment.inference.ONNXInferenceEngine") as mock_onnx:
                 mock_onnx.return_value = MagicMock()
                 engine = create_inference_engine(backend="auto", root_artifacts=tmp_path)
@@ -376,6 +376,31 @@ def test_create_inference_engine_target_hailo_aliases(tmp_path: Path) -> None:
         engine = create_inference_engine(backend="hailo-hat", root_artifacts=tmp_path)
         assert engine is not None
         mock_hailo.assert_called_once_with(dummy_hef)
+
+
+def test_hailo_engine_missing_platform_diagnostic(tmp_path: Path) -> None:
+    """Verify HailoInferenceEngine raises DeploymentError with detailed diagnostic."""
+    import pytest
+    from yolo_hailo_mlops.deployment.inference import HailoInferenceEngine
+    from yolo_hailo_mlops.exceptions import DeploymentError
+
+    dummy_hef = tmp_path / "model.hef"
+    dummy_hef.touch()
+
+    mock_env = MagicMock()
+    mock_env.has_hardware = True
+
+    with patch("yolo_hailo_mlops.deployment.inference.detect_hailo_environment", return_value=mock_env):
+        with patch(
+            "yolo_hailo_mlops.deployment.inference.try_import_hailo_platform",
+            return_value=(None, "Installed for system Python 3.11", "Run /usr/bin/python3 ..."),
+        ):
+            with pytest.raises(DeploymentError) as exc_info:
+                HailoInferenceEngine(dummy_hef)
+            assert exc_info.value.code == "E-DEPLOY-RT-001"
+            assert "Installed for system Python 3.11" in exc_info.value.message
+            assert "Run /usr/bin/python3" in exc_info.value.remediation
+
 
 
 

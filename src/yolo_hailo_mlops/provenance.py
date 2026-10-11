@@ -94,17 +94,46 @@ def get_installed_packages() -> Dict[str, str]:
 
 def ensure_system_dist_packages() -> None:
     """Ensure Debian/Raspberry Pi OS system dist-packages is linked and in sys.path."""
-    for dist_dir in ["/usr/lib/python3/dist-packages", "/usr/local/lib/python3/dist-packages"]:
-        if os.path.isdir(dist_dir) and dist_dir not in sys.path:
+    import glob
+    import site
+
+    candidate_dirs = [
+        "/usr/lib/python3/dist-packages",
+        "/usr/local/lib/python3/dist-packages",
+        f"/usr/lib/python{sys.version_info.major}.{sys.version_info.minor}/dist-packages",
+        f"/usr/local/lib/python{sys.version_info.major}.{sys.version_info.minor}/dist-packages",
+    ]
+    candidate_dirs.extend(glob.glob("/usr/lib/python3.*/dist-packages"))
+    candidate_dirs.extend(glob.glob("/usr/local/lib/python3.*/dist-packages"))
+
+    # Deduplicate while preserving order
+    seen = set()
+    unique_dirs = []
+    for d in candidate_dirs:
+        if d not in seen and os.path.isdir(d):
+            seen.add(d)
+            unique_dirs.append(d)
+
+    for dist_dir in unique_dirs:
+        if dist_dir not in sys.path:
             sys.path.append(dist_dir)
+        try:
+            site.addsitedir(dist_dir)
+        except Exception:
+            pass
 
     if sys.prefix != sys.base_prefix:
         try:
-            site_pkgs = Path(sys.prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
+            site_pkgs = (
+                Path(sys.prefix)
+                / "lib"
+                / f"python{sys.version_info.major}.{sys.version_info.minor}"
+                / "site-packages"
+            )
             if site_pkgs.is_dir():
                 pth_file = site_pkgs / "_system_dist_packages.pth"
-                if not pth_file.exists():
-                    pth_file.write_text("/usr/lib/python3/dist-packages\n/usr/local/lib/python3/dist-packages\n", encoding="utf-8")
+                content = "\n".join(unique_dirs) + "\n"
+                pth_file.write_text(content, encoding="utf-8")
         except Exception:
             pass
 
@@ -122,6 +151,7 @@ def ensure_system_dist_packages() -> None:
 
 
 ensure_system_dist_packages()
+
 
 
 def get_dependency_versions() -> Dict[str, Any]:
