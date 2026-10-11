@@ -43,6 +43,7 @@ hailo:
   target: "hailo8l"     # Canonical accelerator: hailo8l (Raspberry Pi 5 AI HAT+)
   sdk_mode: "auto"      # "auto", "sdk", "cli"
   require_hardware: false # Fail if physical Hailo-8L accelerator missing
+  measure_power: true   # Enable accelerator and PMIC power telemetry
   har_path: null        # Path to existing HAR if resuming compile phase
   hef_path: null        # Path to existing HEF if running runtime validation
   compiler_optimization_level: 0

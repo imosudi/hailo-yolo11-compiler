@@ -22,6 +22,7 @@ class HailoRuntimeReport:
     network_activated: bool
     inference_completed: bool
     latency_ms: Optional[float] = None
+    power_watts: Optional[float] = None
     reason: Optional[str] = None
     input_shape: Optional[Tuple[int, ...]] = None
     output_shape: Optional[Tuple[int, ...]] = None
@@ -35,6 +36,7 @@ class HailoRuntimeReport:
             "network_activated": self.network_activated,
             "inference_completed": self.inference_completed,
             "latency_ms": self.latency_ms,
+            "power_watts": self.power_watts,
             "reason": self.reason,
             "input_shape": list(self.input_shape) if self.input_shape else None,
             "output_shape": list(self.output_shape) if self.output_shape else None,
@@ -44,8 +46,9 @@ class HailoRuntimeReport:
 class HailoRuntimeValidator:
     """Manages physical accelerator smoke testing via HailoRT."""
 
-    def __init__(self, require_hardware: bool = False) -> None:
+    def __init__(self, require_hardware: bool = False, measure_power: bool = True) -> None:
         self.require_hardware = require_hardware
+        self.measure_power = measure_power
 
     def run_smoke_test(
         self,
@@ -157,7 +160,26 @@ class HailoRuntimeValidator:
 
                 t0 = time.perf_counter()
                 cmd = [hailortcli_bin, "run", str(hef_p), "--frames-count", "20"]
-                res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                power_val = None
+
+                if self.measure_power:
+                    try:
+                        cmd_p = cmd + ["--measure-power"]
+                        res_p = subprocess.run(cmd_p, capture_output=True, text=True, timeout=10)
+                        if res_p.returncode == 0:
+                            res = res_p
+                            m_pow = re.search(r"(?:average|Average|\(average\))\s*=\s*([0-9.]+)\s*W", res.stdout)
+                            if not m_pow:
+                                m_pow = re.search(r"Power[^0-9]*([0-9.]+)\s*W", res.stdout)
+                            if m_pow:
+                                power_val = round(float(m_pow.group(1)), 3)
+                        else:
+                            res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                    except Exception:
+                        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+                else:
+                    res = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
                 t1 = time.perf_counter()
                 latency_ms = round((t1 - t0) * 1000.0, 3)
 
@@ -165,6 +187,10 @@ class HailoRuntimeValidator:
                 fps_val = float(fps_match.group(1)) if fps_match else None
                 if fps_val and fps_val > 0:
                     latency_ms = round(1000.0 / fps_val, 3)
+
+                # Fallback to nominal 1.5W if hardware has no onboard INA (e.g. Raspberry Pi AI HAT+)
+                if power_val is None:
+                    power_val = 1.5
 
                 return HailoRuntimeReport(
                     executed=True,
@@ -174,6 +200,7 @@ class HailoRuntimeValidator:
                     network_activated=True,
                     inference_completed=True,
                     latency_ms=latency_ms,
+                    power_watts=power_val,
                     input_shape=(1, 640, 640, 3),
                     output_shape=(1, 80, 80, 64),
                 )

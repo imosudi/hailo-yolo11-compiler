@@ -72,6 +72,7 @@ class HailoConfig:
     target: str = "hailo8l"
     sdk_mode: str = "auto"
     require_hardware: bool = False
+    measure_power: bool = True
     har_path: Optional[str] = None
     hef_path: Optional[str] = None
     compiler_optimization_level: int = 0
@@ -312,6 +313,7 @@ def load_config(
         target=get_env_val("YOLO_HAILO_TARGET", hailo_d.get("target", "hailo8l")),
         sdk_mode=get_env_val("YOLO_HAILO_SDK_MODE", hailo_d.get("sdk_mode", "auto")),
         require_hardware=get_env_val("YOLO_HAILO_REQUIRE_HARDWARE", hailo_d.get("require_hardware", False), bool),
+        measure_power=get_env_val("YOLO_HAILO_MEASURE_POWER", hailo_d.get("measure_power", True), bool),
         har_path=get_env_val("YOLO_HAILO_HAR_PATH", hailo_d.get("har_path")),
         hef_path=get_env_val("YOLO_HAILO_HEF_PATH", hailo_d.get("hef_path")),
         compiler_optimization_level=hailo_d.get("compiler_optimization_level", 0),
@@ -404,6 +406,8 @@ def load_config(
                 pass
         if "require_hardware" in cli_overrides and cli_overrides["require_hardware"] is not None:
             app_cfg.hailo.require_hardware = bool(cli_overrides["require_hardware"])
+        if "measure_power" in cli_overrides and cli_overrides["measure_power"] is not None:
+            app_cfg.hailo.measure_power = bool(cli_overrides["measure_power"])
 
     app_cfg.validate()
     return app_cfg

@@ -6,10 +6,13 @@ import datetime
 import importlib.metadata
 import os
 import platform
+import re
 import subprocess
 import sys
 from dataclasses import asdict, dataclass
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from shutil import which
+from typing import Any, Dict, List, Optional, Tuple
 
 try:
     import psutil
@@ -263,9 +266,8 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
             )
         )
 
-    # 5. Raspberry Pi Throttling
+    # 5. Raspberry Pi Throttling & PMIC Power
     throttled_read = False
-    from shutil import which
     if which("vcgencmd"):
         try:
             out = subprocess.check_output(["vcgencmd", "get_throttled"], text=True).strip()
@@ -283,6 +285,31 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
         except Exception:
             pass
 
+        # RPi 5 Renesas DA9091 PMIC Power Measurement
+        pmic_w, sys_w, _ = read_rpi_pmic_power()
+        if pmic_w is not None:
+            records.append(
+                TelemetryRecord(
+                    metric="rpi_pmic_power",
+                    value=pmic_w,
+                    unit="W",
+                    classification="MEASURED",
+                    source="vcgencmd pmic_read_adc",
+                    timestamp=now,
+                )
+            )
+        if sys_w is not None:
+            records.append(
+                TelemetryRecord(
+                    metric="rpi_system_power",
+                    value=sys_w,
+                    unit="W",
+                    classification="DERIVED",
+                    source="pmic_model",
+                    timestamp=now,
+                )
+            )
+
     if not throttled_read:
         records.append(
             TelemetryRecord(
@@ -296,41 +323,166 @@ def collect_hardware_telemetry() -> List[TelemetryRecord]:
             )
         )
 
-    # 6. Hailo Accelerator Telemetry
-    hailo_telemetry_found = False
-    if which("hailortcli"):
+    # 6. Hailo Accelerator Power Telemetry
+    hailo_w, h_class, h_source, h_reason = measure_hailo_power()
+    records.append(
+        TelemetryRecord(
+            metric="hailo_power",
+            value=hailo_w,
+            unit="W",
+            classification=h_class,
+            source=h_source,
+            timestamp=now,
+            reason=h_reason,
+        )
+    )
+
+    return records
+
+
+def read_rpi_pmic_power() -> Tuple[Optional[float], Optional[float], Dict[str, float]]:
+    """Read Raspberry Pi 5 Renesas DA9091 PMIC rail telemetry via vcgencmd.
+
+    Returns:
+        (total_pmic_watts, estimated_system_watts, per_rail_watts)
+    """
+    if not which("vcgencmd"):
+        return None, None, {}
+    try:
+        raw = subprocess.check_output(
+            ["vcgencmd", "pmic_read_adc"], text=True, stderr=subprocess.DEVNULL
+        )
+        currents: Dict[str, float] = {}
+        volts: Dict[str, float] = {}
+        for line in raw.strip().splitlines():
+            line = line.strip()
+            m_curr = re.match(r"^([A-Za-z0-9_]+)_A\s+current\(\d+\)=([0-9.]+)A", line)
+            if m_curr:
+                currents[m_curr.group(1)] = float(m_curr.group(2))
+                continue
+            m_volt = re.match(r"^([A-Za-z0-9_]+)_V\s+volt\(\d+\)=([0-9.]+)V", line)
+            if m_volt:
+                volts[m_volt.group(1)] = float(m_volt.group(2))
+                continue
+
+        rail_powers: Dict[str, float] = {}
+        total_pmic = 0.0
+        for rail, i_val in currents.items():
+            if rail in volts:
+                p = i_val * volts[rail]
+                rail_powers[rail] = round(p, 4)
+                total_pmic += p
+
+        if total_pmic > 0:
+            est_system = (total_pmic * 1.1451) + 0.5879
+            return round(total_pmic, 3), round(est_system, 3), rail_powers
+    except Exception:
+        pass
+    return None, None, {}
+
+
+def measure_hailo_power() -> Tuple[Optional[float], str, str, Optional[str]]:
+    """Attempt physical or estimated power measurement from Hailo accelerator.
+
+    Returns:
+        (power_in_watts, classification, source, reason)
+    """
+    hailortcli_bin = which("hailortcli")
+
+    if hailortcli_bin:
+        # 1. Try standalone measure-power command
         try:
-            out = subprocess.check_output(
-                ["hailortcli", "measure-power"], text=True, stderr=subprocess.DEVNULL
-            ).strip()
-            records.append(
-                TelemetryRecord(
-                    metric="hailo_power",
-                    value=out,
-                    unit="W",
-                    classification="MEASURED",
-                    source="hailortcli",
-                    timestamp=now,
-                )
+            proc = subprocess.run(
+                [hailortcli_bin, "measure-power", "--duration", "1"],
+                capture_output=True,
+                text=True,
+                timeout=4,
             )
-            hailo_telemetry_found = True
+            combined = f"{proc.stdout} {proc.stderr}"
+            if proc.returncode == 0:
+                m = re.search(
+                    r"(?:average|Average|\(average\)|Power|power)[^0-9]*([0-9]+\.[0-9]+)\s*W",
+                    proc.stdout,
+                )
+                if not m:
+                    m = re.search(r"([0-9]+\.[0-9]+)\s*W", proc.stdout)
+                if m:
+                    return round(float(m.group(1)), 3), "MEASURED", "hailortcli measure-power", None
+
+            if (
+                "unsupported" in combined.lower()
+                or "unsupported_opcode" in combined.lower()
+                or "unsupported_device" in combined.lower()
+            ):
+                return (
+                    1.5,
+                    "ESTIMATED",
+                    "hailo8l_datasheet",
+                    "Raspberry Pi AI HAT+ Hailo-8L omits onboard INA power sensor; nominal active power estimated at 1.5W.",
+                )
         except Exception:
             pass
 
-    if not hailo_telemetry_found:
-        records.append(
-            TelemetryRecord(
-                metric="hailo_power",
-                value=None,
-                unit="W",
-                classification="UNAVAILABLE",
-                source="hailortcli",
-                timestamp=now,
-                reason="Hailo hardware power telemetry not exposed or hardware not connected",
-            )
+        # 2. Check if a compiled HEF exists to test live power measurement under inference
+        canonical_hef = Path("artifacts/hailo/model.hef")
+        if canonical_hef.is_file():
+            try:
+                proc = subprocess.run(
+                    [
+                        hailortcli_bin,
+                        "run",
+                        str(canonical_hef),
+                        "--frames-count",
+                        "20",
+                        "--measure-power",
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                combined = f"{proc.stdout} {proc.stderr}"
+                if proc.returncode == 0:
+                    m = re.search(
+                        r"(?:average|Average|\(average\))\s*=\s*([0-9.]+)\s*W",
+                        proc.stdout,
+                    )
+                    if not m:
+                        m = re.search(r"([0-9]+\.[0-9]+)\s*W", proc.stdout)
+                    if m:
+                        return (
+                            round(float(m.group(1)), 3),
+                            "MEASURED",
+                            "hailortcli run --measure-power",
+                            None,
+                        )
+                if (
+                    "unsupported" in combined.lower()
+                    or "unsupported_opcode" in combined.lower()
+                ):
+                    return (
+                        1.5,
+                        "ESTIMATED",
+                        "hailo8l_datasheet",
+                        "Raspberry Pi AI HAT+ Hailo-8L omits onboard INA power sensor; nominal active power estimated at 1.5W.",
+                    )
+            except Exception:
+                pass
+
+    # 3. If Hailo hardware device file exists (/dev/hailo0)
+    if os.path.exists("/dev/hailo0"):
+        return (
+            1.5,
+            "ESTIMATED",
+            "hailo8l_datasheet",
+            "Physical Hailo-8L accelerator connected; board omits INA current monitor; nominal power reported.",
         )
 
-    return records
+    return (
+        None,
+        "UNAVAILABLE",
+        "hailortcli",
+        "Hailo hardware power telemetry not exposed or hardware not connected",
+    )
 
 
 def get_environment_info() -> Dict[str, Any]:

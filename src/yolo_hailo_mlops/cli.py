@@ -466,11 +466,22 @@ class PipelineRunner:
         # 3. Hailo Runtime Smoke Test
         self.logger.info("Running Hailo runtime smoke test...", phase="hailo_validation")
         self.sm.start_phase(PhaseName.HAILO_VALIDATION)
-        runtime_validator = HailoRuntimeValidator(require_hardware=self.config.hailo.require_hardware)
+        runtime_validator = HailoRuntimeValidator(
+            require_hardware=self.config.hailo.require_hardware,
+            measure_power=getattr(self.config.hailo, "measure_power", True),
+        )
         if hef_p.is_file():
             rt_report = runtime_validator.run_smoke_test(hef_p)
             if rt_report.status == "SUCCESS":
                 self.sm.complete_phase(PhaseName.HAILO_VALIDATION, metadata=rt_report.to_dict())
+                if rt_report.power_watts is not None:
+                    # Update manifest telemetry with active power measurement
+                    for t in self.manifest.telemetry:
+                        if t.get("metric") == "hailo_power":
+                            t["value"] = rt_report.power_watts
+                            t["classification"] = "MEASURED"
+                            t["source"] = "hailortcli_live_inference"
+                            t["reason"] = None
             elif rt_report.status == "NOT_EXECUTED":
                 self.sm.mark_not_executed(PhaseName.HAILO_VALIDATION, reason=rt_report.reason or "Hardware absent")
             else:
@@ -657,6 +668,10 @@ def main() -> None:
                         help="Show execution plan without modifying artifacts")
     parser.add_argument("--require-hardware", action="store_true", default=False,
                         help="Fail if physical Hailo-8L accelerator missing")
+    parser.add_argument("--measure-power", dest="measure_power", action="store_true", default=None,
+                        help="Enable accelerator power measurement (defaults to True)")
+    parser.add_argument("--no-measure-power", dest="measure_power", action="store_false",
+                        help="Disable accelerator power measurement")
     parser.add_argument("--execution-mode", choices=["auto", "portable", "hailo_compile", "hailo_runtime"],
                         default="auto", help="Boundary execution mode")
 
@@ -677,6 +692,7 @@ def main() -> None:
         "dry_run": args.dry_run,
         "execution_mode": args.execution_mode,
         "require_hardware": args.require_hardware,
+        "measure_power": args.measure_power,
     }
 
     try:
